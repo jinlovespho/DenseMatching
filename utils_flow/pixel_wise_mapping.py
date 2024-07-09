@@ -67,11 +67,13 @@ def warp(x, flo, padding_mode='zeros', return_mask=False):
     """
     B, C, H, W = flo.size()
     # mesh grid
-    xx = torch.arange(0, W).view(1, -1).repeat(H, 1)
-    yy = torch.arange(0, H).view(-1, 1).repeat(1, W)
-    xx = xx.view(1, 1, H, W).repeat(B, 1, 1, 1)
-    yy = yy.view(1, 1, H, W).repeat(B, 1, 1, 1)
-    grid = torch.cat((xx, yy), 1).float()
+    # xx = torch.arange(0, W).view(1, -1).repeat(H, 1)
+    # yy = torch.arange(0, H).view(-1, 1).repeat(1, W)
+    # xx = xx.view(1, 1, H, W).repeat(B, 1, 1, 1)
+    # yy = yy.view(1, 1, H, W).repeat(B, 1, 1, 1)
+    # grid = torch.cat((xx, yy), 1).float()
+    yy,xx = torch.meshgrid(torch.arange(H), torch.arange(W))
+    grid = torch.stack([xx,yy]).repeat(B,1,1,1) # b 2 h w
 
     if x.is_cuda:
         grid = grid.cuda()

@@ -48,6 +48,7 @@ def deconv(in_planes, out_planes, kernel_size=4, stride=2, padding=1):
 def unnormalise_and_convert_mapping_to_flow(map):
     # here map is normalised to -1;1
     # we put it back to 0,W-1, then convert it to flow
+    # breakpoint()
     B, C, H, W = map.size()
     mapping = torch.zeros_like(map)
     # mesh grid
@@ -195,9 +196,10 @@ class CMDTop(CorrespondenceMapBase):
         self.final = conv_head(chan[-1])
 
     def forward(self, x1, x2=None, x3=None):
+        # breakpoint()
         x = super().forward(x1, x2, x3)
-        x = self.conv4(self.conv3(self.conv2(self.conv1(self.conv0(x)))))
-        mapping = self.final(x)
+        x = self.conv4(self.conv3(self.conv2(self.conv1(self.conv0(x)))))   # b 32 16 16
+        mapping = self.final(x) # b 2 16 16 
         if self.output_x:
             return x, mapping
         else:

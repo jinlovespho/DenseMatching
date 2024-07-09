@@ -8,6 +8,8 @@ from training.plot.plot_GLOCALNet import plot_basenet_during_training
 from training.plot. plot_sparse_keypoints import plot_sparse_keypoints
 from training.plot.plot_GLUNet import plot_during_training_with_uncertainty, plot_sparse_keypoints_GLUNet
 
+from torchvision.utils import save_image 
+
 
 class GLOCALNetActor(BaseActor):
     """Actor for training the GLOCALNet or BaseNet network with a self-supervised or supervised strategy."""
@@ -130,6 +132,31 @@ class GLUNetBasedActor(BaseActor):
 
         # Run network
         mini_batch = self.batch_processing(mini_batch)  # also put to GPU there
+        
+        
+        import torch 
+        import torch.nn as nn 
+        src = mini_batch['source_image'].detach().cpu()    #   b 3 520 520
+        tgt = mini_batch['target_image'].detach().cpu()
+        flo = mini_batch['flow_map'].detach().cpu()    # b 2 520 520
+        B, C, H, W = flo.size()
+        # mesh grid
+        yy,xx = torch.meshgrid(torch.arange(H), torch.arange(W))
+        grid = torch.stack([xx,yy]).repeat(B,1,1,1) # b 2 h w
+        vgrid = grid + flo  # b 2 h w 
+        # makes a mapping out of the flow
+        # scale grid to [-1,1]
+        vgrid[:, 0, :, :] = 2.0 * vgrid[:, 0, :, :].clone() / max(W - 1, 1) - 1.0
+        vgrid[:, 1, :, :] = 2.0 * vgrid[:, 1, :, :].clone() / max(H - 1, 1) - 1.0        
+        vgrid = vgrid.permute(0, 2, 3, 1)   # b h w 2
+        output = nn.functional.grid_sample(src, vgrid)  # b 3 520 520
+
+        save_image(src, './tmp_src.jpg',normalize=True)
+        save_image(tgt, './tmp_tgt.jpg', normalize=True)
+        save_image(output, './tmp_output.jpg', normalize=True)
+        
+        breakpoint()
+        
         output_net_256, output_net_original = self.net(mini_batch['target_image'], mini_batch['source_image'],
                                                        mini_batch['target_image_256'], mini_batch['source_image_256'])
 

@@ -519,12 +519,30 @@ class BaseGLUMultiScaleMatchingNet(BaseMultiScaleMatchingNet):
             output_shape = (h_scale, w_scale)
         flow_est = torch.nn.functional.interpolate(input=flow_est, size=output_shape, mode='bilinear',
                                                    align_corners=False)
-
+        
         flow_est[:, 0, :, :] *= ratio_x
         flow_est[:, 1, :, :] *= ratio_y
 
+        breakpoint()
+        
+        src_img = torch.nn.functional.interpolate(source_img, size=output_shape, mode='bilinear', align_corners=False)
+        tgt_img = torch.nn.functional.interpolate(target_img, size=output_shape, mode='bilinear', align_corners=False)
+        
+        from torchvision.utils import save_image 
+        save_image(src_img, 'img_s.jpg', normalize=True)
+        save_image(tgt_img, 'img_t.jpg', normalize=True)
+        
+        flow_est[:,0,:,:] = 2.0*((flow_est[:,0,:,:].clone()-flow_est[:,0,:,:].min()) / (flow_est[:,0,:,:].max() - flow_est[:,0,:,:].min()))-1.0
+        flow_est[:,1,:,:] = 2.0*((flow_est[:,1,:,:].clone()-flow_est[:,1,:,:].min()) / (flow_est[:,1,:,:].max() - flow_est[:,1,:,:].min()))-1.0
+                
+        breakpoint()
+        
+        # warped_s = F.grid_sample(source_img, flow_est.p)
+        
+        
+        
         if mode == 'channel_first':
-            return flow_est
+            return flow_est     # (b,2,914,1380)
         else:
             return flow_est.permute(0, 2, 3, 1)
 

@@ -75,7 +75,7 @@ class BaseTrainer:
 
                 for epoch in range(self.epoch+1, max_epochs+1):
                     self.epoch = epoch
-
+                    
                     # do one training epoch
                     self.train_epoch()
 

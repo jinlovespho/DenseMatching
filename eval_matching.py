@@ -7,7 +7,8 @@ import datasets
 import json
 
 from utils_data.image_transforms import ArrayToTensor
-from validation.flow_evaluation.evaluate_per_dataset import (run_evaluation_generic, run_evaluation_kitti,
+from validation.flow_evaluation.evaluate_per_dataset import (run_evaluation_generic, run_evaluation_generic_camap,
+                                                             run_evaluation_kitti,
                                                              run_evaluation_megadepth_or_robotcar,
                                                              run_evaluation_sintel, run_evaluation_eth3d,
                                                              run_evaluation_semantic, run_evaluation_caltech)
@@ -90,9 +91,15 @@ def main(args, settings):
                                                                         'hpatches_1_{}.csv'.format(k)),
                                                            input_transform, target_transform, co_transform,
                                                            use_original_size=original_size, split=0)
-                test_dataloader = DataLoader(test_set, batch_size=1, num_workers=8)
-                output_scene = run_evaluation_generic(network, test_dataloader, device,
-                                                      estimate_uncertainty=estimate_uncertainty)
+                test_dataloader = DataLoader(test_set, batch_size=args.batch_size, num_workers=8)
+                
+                # ca_out (flow)
+                # output_scene = run_evaluation_generic(network, test_dataloader, device, estimate_uncertainty=estimate_uncertainty, args=args, id=id, k=k)
+                
+                # ca_map
+                output_scene = run_evaluation_generic_camap(network, test_dataloader, device, estimate_uncertainty=estimate_uncertainty, args=args, id=id, k=k)
+                
+                breakpoint()
                 list_of_outputs.append(output_scene)
 
             output = {'scene_1': list_of_outputs[0], 'scene_2': list_of_outputs[1], 'scene_3': list_of_outputs[2],
@@ -234,9 +241,14 @@ if __name__ == "__main__":
     parser.add_argument('--save_dir', type=str,
                         help='path to directory to save the text files and results')
     parser.add_argument('--seed', type=int, default=1984, help='Pseudo-RNG seed')
+    
+    parser.add_argument("--image_shape", nargs='+', type=int, default=[914, 1380])
+    parser.add_argument('--batch_size', type=int)
 
     args = parser.parse_args()
     local_optim_iter = int(args.local_optim_iter) if args.local_optim_iter else args.optim_iter
+    
+    # breakpoint()
 
     torch.cuda.empty_cache()
     torch.manual_seed(args.seed)

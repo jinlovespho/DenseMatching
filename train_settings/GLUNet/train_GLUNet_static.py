@@ -20,7 +20,7 @@ def run(settings):
     settings.description = 'Default train settings for GLU-Net on the DPED-CityScape-ADE dataset (also referred ' \
                            'to as static in GOCor paper)'
     settings.data_mode = 'local'
-    settings.batch_size = 16
+    settings.batch_size = 8
     settings.n_threads = 8
     settings.multi_gpu = True
     settings.print_interval = 500

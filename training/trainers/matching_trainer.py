@@ -7,6 +7,8 @@ import torch
 import time
 import gc
 
+from torchvision.utils import save_image 
+
 
 class MatchingTrainer(BaseTrainer):
     """Training for matching networks. """
@@ -61,6 +63,10 @@ class MatchingTrainer(BaseTrainer):
             data['iter'] = i
             data['settings'] = self.settings
 
+            breakpoint()
+            # save_image(data['source_image'].to(torch.float32), './img_src.jpg', normalize=True)
+            # save_image(data['target_image'].to(torch.float32), './img_tgt.jpg', normalize=True)
+            
             # forward pass
             loss, stats = self.actor(data, loader.training)
 
@@ -92,21 +98,22 @@ class MatchingTrainer(BaseTrainer):
     def train_epoch(self):
         """Do one epoch for each loader."""
 
-        if self.epoch == 1 and self.make_initial_validation:
+        if self.epoch == 1 and self.make_initial_validation:    # false
             self.epoch = 0
-            self.cycle_dataset(self.loaders[-1])
+            self.cycle_dataset(self.loaders[-1])    # val_loader
             self._reset_new_epoch()
             self.epoch = 1
 
-        for loader in self.loaders:
+        for loader in self.loaders:     # self.loaders=[train_loader, val_loader]
             # do one cycle of training dataset
 
+            # breakpoint()
             # resample the training dataset if dataset_callback_fn exists
-            if loader.name == 'train' and self.epoch > 1 and not self.just_started and self.settings.dataset_callback_fn:
+            if loader.name == 'train' and self.epoch > 1 and not self.just_started and self.settings.dataset_callback_fn:   # false
                 if hasattr(loader.dataset, self.settings.dataset_callback_fn):
                     getattr(loader.dataset, self.settings.dataset_callback_fn)(self.settings.seed + self.epoch)
 
-            if self.epoch % loader.epoch_interval == 0:
+            if self.epoch % loader.epoch_interval == 0: # True
                 self.cycle_dataset(loader)
 
         self._stats_new_epoch()

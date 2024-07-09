@@ -21,7 +21,7 @@ from datasets.object_augmented_dataset.synthetic_object_augmentation_for_pairs_m
 def run(settings):
     settings.description = 'Default train settings for PDC-Net stage 1'
     settings.data_mode = 'local'
-    settings.batch_size = 15  # train on 2GPU of 11GB
+    settings.batch_size = 8  # train on 2GPU of 11GB
     settings.n_threads = 8
     settings.multi_gpu = True
     settings.print_interval = 50
@@ -152,7 +152,7 @@ def run(settings):
 
     # 8. Define Trainer
     trainer = MatchingTrainer(glunet_actor, [train_loader, val_loader], optimizer, settings, lr_scheduler=scheduler)
-
+    
     trainer.train(settings.n_epochs, load_latest=True, fail_safe=True)
 
 

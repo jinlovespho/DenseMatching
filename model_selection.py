@@ -10,6 +10,10 @@ from models.semantic_matching_models.SFNet import SFNet, SFNetWithBin
 from models.semantic_matching_models.NCNet import NCNetWithBin, ImMatchNet
 from models.semantic_matching_models.cats import CATs
 
+from models.croco_models.croco_downstream import croco_args_from_ckpt, CroCoDownstreamBinocular
+from models.croco_models.head_downstream import PixelwiseTaskWithDPT
+from models.croco_models.pos_embed import interpolate_pos_embed
+
 
 def load_network(net, checkpoint_path=None, **kwargs):
     """Loads a network checkpoint file.
@@ -40,6 +44,7 @@ model_type = ['GLUNet', 'GLUNet_interp',
               'UAWarpC',
               'SFNet', 'PWarpCSFNet_WS', 'PWarpCSFNet_SS', 'NCNet', 'PWarpCNCNet_WS', 'PWarpCNCNet_SS',
               'CATs', 'PWarpCCATs_SS', 'CATs_ft_features', 'PWarpCCATs_ft_features_SS',
+              'crocov2_flow',
               ]
 pre_trained_model_types = ['static', 'dynamic', 'chairs_things', 'chairs_things_ft_sintel', 'megadepth',
                            'megadepth_stage1', 'pfpascal', 'spair']
@@ -213,6 +218,20 @@ def select_model(model_name, pre_trained_model_type, arguments, global_optim_ite
         # similar to original work, we use softargmax as the inference_strategy. This is because the kp loss is the
         # EPE after applying softargmax.
         network = CATs(forward_pass_strategy='flow_prediction', inference_strategy='softargmax')
+    elif model_name == 'crocov2_flow':  
+        ckpt = torch.load(path_to_pre_trained_models,'cpu')
+        ckpt_args = ckpt['args']
+        ckpt_args.croco_args['img_size'] = ((arguments.image_shape[0]//32)*32,(arguments.image_shape[1]//32)*32)
+        ckpt_args.crop = ((arguments.image_shape[0]//32)*32,(arguments.image_shape[1]//32)*32)
+        head = PixelwiseTaskWithDPT()
+        head.num_channels = 3   # flow
+        network = CroCoDownstreamBinocular(head, **ckpt_args.croco_args)
+        interpolate_pos_embed(network,ckpt['model'])
+        is_well_loaded=network.load_state_dict(ckpt['model']) 
+        print('IS_WELL_LOADED: ', is_well_loaded)
+        network.eval()
+        network=network.to(device)
+        
     else:
         raise NotImplementedError('the model that you chose does not exist: {}'.format(model_name))
 
@@ -229,10 +248,11 @@ def select_model(model_name, pre_trained_model_type, arguments, global_optim_ite
 
     if not os.path.exists(checkpoint_fname):
         raise ValueError('The checkpoint that you chose does not exist, {}'.format(checkpoint_fname))
-
-    network = load_network(network, checkpoint_path=checkpoint_fname)
-    network.eval()
-    network = network.to(device)
+    
+    if 'croco' not in model_name or 'dust3r' not in model_name:
+        network = load_network(network, checkpoint_path=checkpoint_fname)
+        network.eval()
+        network = network.to(device)
 
     # define inference arguments
     if arguments.network_type == 'PDCNet' or arguments.network_type == 'PDCNet_plus':

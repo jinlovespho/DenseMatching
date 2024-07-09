@@ -169,11 +169,14 @@ class GLUNetModel(BaseGLUMultiScaleMatchingNet):
                     corresponding to the H-Net (flow2 and flow1), they are scaled for original (high resolution)
                     input resolution.
         """
+        breakpoint()
         # im1 is target image, im2 is source image
         b, _, h_original, w_original = im_target.size()
         b, _, h_256, w_256 = im_target_256.size()  # fixed size of 256x256
         div = 1.0
 
+        # target(c1_) c11 c12 c13 c14
+        # source(c2_) c21 c22 c23 c24 
         c14, c24, c13, c23, c12, c22, c11, c21 = self.extract_features(im_target, im_source, im_target_256,
                                                                        im_source_256, im_target_pyr,
                                                                        im_source_pyr, im_target_pyr_256,
@@ -184,19 +187,20 @@ class GLUNetModel(BaseGLUMultiScaleMatchingNet):
         ratio_x = 16.0 / float(w_256)
         ratio_y = 16.0 / float(h_256)
 
-        corr4 = self.get_global_correlation(c14, c24)
+        corr4 = self.get_global_correlation(c14, c24)   # b 256 16 16   # corr4: global correlation B, h_s*w_s, h_t, w_t
 
         b, c, h, w = corr4.size()
         if torch.cuda.is_available():
-            init_map = torch.FloatTensor(b, 2, h, w).zero_().cuda()
+            init_map = torch.FloatTensor(b, 2, h, w).zero_().cuda() # b 2 16 16
         else:
             init_map = torch.FloatTensor(b, 2, h, w).zero_()
         # init_map is fed to the decoder to be consistent with decoder of DGC-Net (but not particularly needed)
-        est_map4 = self.decoder4(x1=corr4, x3=init_map)
+        est_map4 = self.decoder4(x1=corr4, x3=init_map) # b 2 16 16
+        breakpoint()
         # conversion to flow and from there constrained correlation
         flow4 = unnormalise_and_convert_mapping_to_flow(est_map4)
         # we want flow4 to be scaled for h_256xw_256, so we multiply by these ratios.
-        flow4[:, 0, :, :] /= ratio_x
+        flow4[:, 0, :, :] /= ratio_x        # b 2 16 16
         flow4[:, 1, :, :] /= ratio_y
 
         if self.use_interp_instead_of_deconv:
@@ -209,10 +213,10 @@ class GLUNetModel(BaseGLUMultiScaleMatchingNet):
         ratio_y = 32.0 / float(h_256)
         # the flow needs to be scaled for the current resolution in order to warp.
         # otherwise flow4 and up_flow4 are scaled for h_256xw_256.
-        up_flow_4_warping = up_flow4 * div
+        up_flow_4_warping = up_flow4 * div  # b 2 32 32
         up_flow_4_warping[:, 0, :, :] *= ratio_x
         up_flow_4_warping[:, 1, :, :] *= ratio_y
-        warp3 = self.warp(c23, up_flow_4_warping)
+        warp3 = self.warp(c23, up_flow_4_warping)   # b 256 32 32 = warp( b 256 32 32 , b 2 32 32 )
 
         # constrained correlation now
         # we follow the same procedure than PWCNet (features not normalized, lcoal corr and then leaky relu)

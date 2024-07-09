@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import torch.nn as nn 
 import os
 from PIL import Image
 from tqdm import tqdm
@@ -14,6 +15,50 @@ from datasets.geometric_matching_datasets.ETH3D_interval import ETHInterval
 from validation.plot import plot_sparse_keypoints, plot_flow_and_uncertainty, plot_individual_images
 from .metrics_segmentation_matching import poly_str_to_mask, intersection_over_union, label_transfer_accuracy
 from utils_flow.pixel_wise_mapping import warp
+from models.modules.mod import unnormalise_and_convert_mapping_to_flow
+
+from torchvision.utils import save_image 
+import torch.nn.functional as F
+
+
+def softmax_with_temperature(x, beta, d = 1):
+        r'''SFNet: Learning Object-aware Semantic Flow (Lee et al.)'''
+        M, _ = x.max(dim=d, keepdim=True)
+        x = x - M # subtract maximum value for stability
+        exp_x = torch.exp(x/beta)
+        exp_x_sum = exp_x.sum(dim=d, keepdim=True)
+        return exp_x / exp_x_sum
+    
+def soft_argmax(corr, beta=0.02):
+        r'''SFNet: Learning Object-aware Semantic Flow (Lee et al.)'''
+        b,_,h,w = corr.size()   # b c h w   # b source tg_h tg_w
+        
+        x_normal = np.linspace(-1,1,w)
+        x_normal = nn.Parameter(torch.tensor(x_normal, dtype=torch.float, requires_grad=False)).to('cuda')
+        y_normal = np.linspace(-1,1,h)
+        y_normal = nn.Parameter(torch.tensor(y_normal, dtype=torch.float, requires_grad=False)).to('cuda')
+        
+        corr = softmax_with_temperature(corr, beta=beta, d=1)
+        corr = corr.view(-1,h,w,h,w) # (tgt hxw) x (src hxw)
+
+        grid_x = corr.sum(dim=1, keepdim=False) # marginalize to x-coord.
+        x_normal = x_normal.expand(b,w)
+        x_normal = x_normal.view(b,w,1,1)
+        grid_x = (grid_x*x_normal).sum(dim=1, keepdim=True) # b x 1 x h x w
+        
+        grid_y = corr.sum(dim=2, keepdim=False) # marginalize to y-coord.
+        y_normal = y_normal.expand(b,h)
+        y_normal = y_normal.view(b,h,1,1)
+        grid_y = (grid_y*y_normal).sum(dim=1, keepdim=True) # b x 1 x h x w
+        return grid_x, grid_y
+
+def split_prediction_conf(predictions, with_conf=False):
+    if not with_conf:
+        return predictions, None
+    conf = predictions[:,-1:,:,:]
+    predictions = predictions[:,:-1,:,:]
+    return predictions, conf
+
 
 
 def resize_images_to_min_resolution(min_size, img, x, y, stride_net=16):  # for consistency with RANSAC-Flow
@@ -279,18 +324,218 @@ def run_evaluation_sintel(network, test_dataloader, device, estimate_uncertainty
     return output
 
 
-def run_evaluation_generic(network, test_dataloader, device, estimate_uncertainty=False):
+def run_evaluation_generic(network, test_dataloader, device, estimate_uncertainty=False, args=None, id=None, k=None):
     pbar = tqdm(enumerate(test_dataloader), total=len(test_dataloader))
     mean_epe_list, epe_all_list, pck_1_list, pck_3_list, pck_5_list = [], [], [], [], []
     dict_list_uncertainties = {}
     for i_batch, mini_batch in pbar:
-        source_img = mini_batch['source_image']
+        source_img = mini_batch['source_image'] # b 3 914 1380
         target_img = mini_batch['target_image']
-        flow_gt = mini_batch['flow_map'].to(device)
+        flow_gt = mini_batch['flow_map'].to(device) # b 2 914 1380
         mask_valid = mini_batch['correspondence_mask'].to(device)
-
+   
+        # PHO WARP TEST
+        # src = mini_batch['source_image'].detach().cpu().float()    #   b 3 520 520
+        # tgt = mini_batch['target_image'].detach().cpu().float()
+        # flow = mini_batch['flow_map'].detach().cpu()    # b 2 520 520
+        
+        # warped_tgt = warp(src, flow_gt.detach().cpu())    # b 3 914 1380
+        # save_image(src.float(), './hp_src.jpg',normalize=True)
+        # save_image(tgt.float(), './hp_tgt.jpg', normalize=True)
+        # save_image(warped_tgt, './hp_warped_tgt_gt.jpg', normalize=True)
+        
+        # # reshaped 
+        # src224 = F.interpolate(src, (224,224), mode='bilinear', align_corners=False)
+        # tgt224 = F.interpolate(tgt, (224,224), mode='bilinear', align_corners=False)
+        # flow224 = F.interpolate(flow, (224,224), mode='bilinear', align_corners=False)
+        
+        # flow224[:,0,:,:] *= (224.0/1380)
+        # flow224[:,1,:,:] *= (224.0/914)
+        
+        # warped_tgt224_gt = warp(src224, flow224)
+        # save_image(src224, './hp_src224.jpg',normalize=True)
+        # save_image(tgt224, './hp_tgt224.jpg', normalize=True)
+        # save_image(warped_tgt224_gt, './hp_warped_tgt224_gt.jpg', normalize=True)
+          
         if estimate_uncertainty:
             flow_est, uncertainty_est = network.estimate_flow_and_confidence_map(source_img, target_img)
+        elif 'croco' in args.model or 'dust3r' in args.model:
+            in1k_mean = torch.tensor([0.485, 0.456, 0.406]).view(3,1,1)
+            in1k_std =  torch.tensor([0.229, 0.224, 0.225]).view(3,1,1)
+            source_img = source_img.float()/255.
+            target_img = target_img.float()/255.
+
+            source_img = (source_img - in1k_mean) / in1k_std
+            target_img = (target_img - in1k_mean) / in1k_std
+
+            H_orig, W_orig = flow_gt.shape[2:]
+            H_384, W_320 = args.image_shape
+
+            source_img = F.interpolate(source_img, size=(H_384, W_320), mode='bilinear', align_corners=False).to(device)
+            target_img = F.interpolate(target_img, size=(H_384, W_320), mode='bilinear', align_corners=False).to(device)
+            
+            mask_valid = F.interpolate(mask_valid.float().unsqueeze(0), size=(H_384, W_320), mode='nearest').squeeze(0).bool().to(device)
+            flow_gt = F.interpolate(flow_gt, size=(H_384, W_320), mode='bilinear', align_corners=False).to(device)    # b 2 380 384
+            
+            flow_gt[:,0,:,:] *= (W_320/W_orig)
+            flow_gt[:,1,:,:] *= (H_384/H_orig)
+            
+            flow_est, feature1, feature2 = network(source_img, target_img)
+            flow_est, flow_est_conf = split_prediction_conf(flow_est, with_conf=True) # b 2 320 384
+            
+            # flow_est[:,0,:,:] *= (W_320/W_orig)  
+            # flow_est[:,1,:,:] *= (H_384/H_orig)
+            flow_est *= -1    
+            
+            warped_tgt = warp(source_img.detach().cpu(), flow_est.detach().cpu())  
+            gt_warped_tgt = warp(source_img.detach().cpu(), flow_gt.detach().cpu())
+            
+            if id < 5:
+                log_img_path=f'{args.save_dir}/ca_out/frame1{k}'
+                if not os.path.exists(log_img_path):
+                    os.makedirs(log_img_path)
+            
+                save_image(source_img.detach().cpu(), f'{log_img_path}/{i_batch}_img_src.jpg', normalize=True)
+                save_image(target_img, f'{log_img_path}/{i_batch}_img_tgt.jpg', normalize=True)
+                save_image(warped_tgt, f'{log_img_path}/{i_batch}_img_wrp_tgt.jpg',              normalize=True)
+                save_image(gt_warped_tgt, f'{log_img_path}/{i_batch}_img_wrp_tgt_GT.jpg',        normalize=True)
+            
+            # def corr(src, trg):
+            #     return src.flatten(2).transpose(-1, -2) @ trg.flatten(2)
+            
+            # def l2norm(feature, dim=1):
+            #     epsilon = 1e-6
+            #     norm = torch.pow(torch.sum(torch.pow(feature, 2), dim) + epsilon, 0.5).unsqueeze(dim).expand_as(feature)
+            #     return torch.div(feature, norm)
+            # corr_map = corr(l2norm(feature1[-1].permute(0,2,1)), l2norm(feature2[-1].permute(0,2,1))).squeeze()
+        
+        else:
+            flow_est = network.estimate_flow(source_img, target_img)
+
+        flow_est = flow_est.permute(0, 2, 3, 1)[mask_valid]
+        flow_gt = flow_gt.permute(0, 2, 3, 1)[mask_valid]
+
+        epe = torch.sum((flow_est - flow_gt) ** 2, dim=1).sqrt()
+
+        epe_all_list.append(epe.view(-1).cpu().numpy())
+        mean_epe_list.append(epe.mean().item())
+        pck_1_list.append(epe.le(1.0).float().mean().item())
+        pck_3_list.append(epe.le(3.0).float().mean().item())
+        pck_5_list.append(epe.le(5.0).float().mean().item())
+
+        if estimate_uncertainty:
+            dict_list_uncertainties = compute_uncertainty_per_image(uncertainty_est, flow_gt, flow_est, mask_valid,
+                                                                    dict_list_uncertainties)
+
+    epe_all = np.concatenate(epe_all_list)
+    pck1_dataset = np.mean(epe_all <= 1)
+    pck3_dataset = np.mean(epe_all <= 3)
+    pck5_dataset = np.mean(epe_all <= 5)
+    output = {'AEPE': np.mean(mean_epe_list), 'PCK_1_per_image': np.mean(pck_1_list),
+              'PCK_3_per_image': np.mean(pck_3_list), 'PCK_5_per_image': np.mean(pck_5_list),
+              'PCK_1_per_dataset': pck1_dataset, 'PCK_3_per_dataset': pck3_dataset,
+              'PCK_5_per_dataset': pck5_dataset, 'num_pixels_pck_1': np.sum(epe_all <= 1).astype(np.float64),
+              'num_pixels_pck_3': np.sum(epe_all <= 3).astype(np.float64),
+              'num_pixels_pck_5': np.sum(epe_all <= 5).astype(np.float64),
+              'num_valid_corr': len(epe_all)
+              }
+    print("Validation EPE: %f, 1px: %f, 3px: %f, 5px: %f" % (np.mean(mean_epe_list), pck1_dataset,
+                                                             pck3_dataset, pck5_dataset))
+    if estimate_uncertainty:
+        for uncertainty_name in dict_list_uncertainties.keys():
+            output['uncertainty_dict_{}'.format(uncertainty_name)] = compute_average_of_uncertainty_metrics(
+                dict_list_uncertainties[uncertainty_name])
+    return output
+
+
+def run_evaluation_generic_camap(network, test_dataloader, device, estimate_uncertainty=False, args=None, id=None, k=None):
+    pbar = tqdm(enumerate(test_dataloader), total=len(test_dataloader))
+    mean_epe_list, epe_all_list, pck_1_list, pck_3_list, pck_5_list = [], [], [], [], []
+    dict_list_uncertainties = {}
+    for i_batch, mini_batch in pbar:
+        source_img = mini_batch['source_image'] # b 3 914 1380
+        target_img = mini_batch['target_image']
+        flow_gt = mini_batch['flow_map'].to(device) # b 2 914 1380
+        mask_valid = mini_batch['correspondence_mask'].to(device)
+          
+        if estimate_uncertainty:
+            flow_est, uncertainty_est = network.estimate_flow_and_confidence_map(source_img, target_img)
+        elif 'croco' in args.model or 'dust3r' in args.model:
+            in1k_mean = torch.tensor([0.485, 0.456, 0.406]).view(3,1,1)
+            in1k_std =  torch.tensor([0.229, 0.224, 0.225]).view(3,1,1)
+            source_img = source_img.float()/255.
+            target_img = target_img.float()/255.
+
+            source_img = (source_img - in1k_mean) / in1k_std
+            target_img = (target_img - in1k_mean) / in1k_std
+
+            H_orig, W_orig = flow_gt.shape[2:]
+            H_384, W_320 = args.image_shape
+
+            source_img = F.interpolate(source_img, size=(H_384, W_320), mode='bilinear', align_corners=False).to(device)
+            target_img = F.interpolate(target_img, size=(H_384, W_320), mode='bilinear', align_corners=False).to(device)
+            
+            mask_valid = F.interpolate(mask_valid.float().unsqueeze(0), size=(H_384, W_320), mode='nearest').squeeze(0).bool().to(device)
+            flow_gt = F.interpolate(flow_gt, size=(H_384, W_320), mode='bilinear', align_corners=False).to(device)    # b 2 380 384
+            
+            flow_gt[:,0,:,:] *= (W_320/W_orig)
+            flow_gt[:,1,:,:] *= (H_384/H_orig)
+            
+            flow_est, feature1, feature2 = network(source_img, target_img)
+            flow_est, flow_est_conf = split_prediction_conf(flow_est, with_conf=True) # b 2 320 384
+            
+            # flow_est *= -1    # b 2 320 384     # source -> target flow 방향 맞추기
+            
+            sa_maps=[]
+            num_enc_blks=24
+            for i in range(num_enc_blks):
+                sa_maps.append(network.enc_blocks[i].sa_map)
+               
+            ca_maps=[]
+            num_dec_blks=12
+            for i in range(num_dec_blks):
+                ca_maps.append(network.dec_blocks[i].ca_map)
+                
+            num_pH=H_384//16
+            num_pW=W_320//16
+            
+            ca_maps = torch.cat(ca_maps)    # num_maps num_heads 480 480
+            ca_map = torch.mean(ca_maps, dim=(0,1)).unsqueeze(dim=0) # 1 480 480 (24 40 24 40)
+            
+            grid_x, grid_y = soft_argmax(ca_map.view(1, -1, num_pH, num_pW))   # b 1 16 16 
+
+            # mapping(abolute pos), flow(relative pos)
+            mapping = torch.cat((grid_x, grid_y), dim=1)   # b 2 16 16 
+            flow = unnormalise_and_convert_mapping_to_flow(mapping)    # b 2 16 16
+            flow_up = F.interpolate(flow, (384,320), mode='bilinear', align_corners=False)
+            flow_up[:,0,:,:] *= (W_320/num_pW)
+            flow_up[:,1,:,:] *= (H_384/num_pW)
+            # flow_up *= -1.0 
+            
+            warped_tgt = warp(source_img.detach().cpu(), flow_up.detach().cpu())  
+            gt_warped_tgt = warp(source_img.detach().cpu(), flow_gt.detach().cpu())
+            
+            if id < 5:
+                log_img_path=f'{args.save_dir}/ca_map/frame1{k}'
+                if not os.path.exists(log_img_path):
+                    os.makedirs(log_img_path)
+            
+                save_image(source_img.detach().cpu(), f'{log_img_path}/{i_batch}_img_src.jpg', normalize=True)
+                save_image(target_img, f'{log_img_path}/{i_batch}_img_tgt.jpg', normalize=True)
+                save_image(warped_tgt, f'{log_img_path}/{i_batch}_img_wrp_tgt.jpg',              normalize=True)
+                save_image(gt_warped_tgt, f'{log_img_path}/{i_batch}_img_wrp_tgt_GT.jpg',        normalize=True)
+            
+            breakpoint()
+            
+            # def corr(src, trg):
+            #     return src.flatten(2).transpose(-1, -2) @ trg.flatten(2)
+            
+            # def l2norm(feature, dim=1):
+            #     epsilon = 1e-6
+            #     norm = torch.pow(torch.sum(torch.pow(feature, 2), dim) + epsilon, 0.5).unsqueeze(dim).expand_as(feature)
+            #     return torch.div(feature, norm)
+            # corr_map = corr(l2norm(feature1[-1].permute(0,2,1)), l2norm(feature2[-1].permute(0,2,1))).squeeze()
+        
         else:
             flow_est = network.estimate_flow(source_img, target_img)
 

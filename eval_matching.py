@@ -99,8 +99,8 @@ def main(args, settings):
                 # ca_map
                 output_scene = run_evaluation_generic_camap(network, test_dataloader, device, estimate_uncertainty=estimate_uncertainty, args=args, id=id, k=k)
                 
-                breakpoint()
                 list_of_outputs.append(output_scene)
+        
 
             output = {'scene_1': list_of_outputs[0], 'scene_2': list_of_outputs[1], 'scene_3': list_of_outputs[2],
                       'scene_4': list_of_outputs[3], 'scene_5': list_of_outputs[4], 'all': list_of_outputs[5]}

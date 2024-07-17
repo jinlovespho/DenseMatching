@@ -169,12 +169,13 @@ class GLUNetModel(BaseGLUMultiScaleMatchingNet):
                     corresponding to the H-Net (flow2 and flow1), they are scaled for original (high resolution)
                     input resolution.
         """
-        breakpoint()
+
         # im1 is target image, im2 is source image
         b, _, h_original, w_original = im_target.size()
         b, _, h_256, w_256 = im_target_256.size()  # fixed size of 256x256
         div = 1.0
 
+        breakpoint()
         # target(c1_) c11 c12 c13 c14
         # source(c2_) c21 c22 c23 c24 
         c14, c24, c13, c23, c12, c22, c11, c21 = self.extract_features(im_target, im_source, im_target_256,
@@ -189,6 +190,17 @@ class GLUNetModel(BaseGLUMultiScaleMatchingNet):
 
         corr4 = self.get_global_correlation(c14, c24)   # b 256 16 16   # corr4: global correlation B, h_s*w_s, h_t, w_t
 
+        '''
+        corr4: target aligned: b (H_s W_s) H_t W_t
+        map_tmp = self.decoder(corr4)  # b 2 H_t W_t    [-1,1]
+        map = (map_tmp+1.0) * map.max() / 2.0
+        flow = map - grid
+        
+        flow_up = interpolate() #  H_up, W_up
+        flow_up = flow * (H_up/H_t) or flow * (W_up/W_t)
+        
+        '''
+        
         b, c, h, w = corr4.size()
         if torch.cuda.is_available():
             init_map = torch.FloatTensor(b, 2, h, w).zero_().cuda() # b 2 16 16
@@ -196,6 +208,12 @@ class GLUNetModel(BaseGLUMultiScaleMatchingNet):
             init_map = torch.FloatTensor(b, 2, h, w).zero_()
         # init_map is fed to the decoder to be consistent with decoder of DGC-Net (but not particularly needed)
         est_map4 = self.decoder4(x1=corr4, x3=init_map) # b 2 16 16
+
+        '''
+        est_map4와 flow4 shape이 이미 b 2 16 16 으로 동일한데, 아래 unnormalise_and_conver_mapping_to_flow()를 해주는 이유?
+        => 
+        '''
+        
         breakpoint()
         # conversion to flow and from there constrained correlation
         flow4 = unnormalise_and_convert_mapping_to_flow(est_map4)

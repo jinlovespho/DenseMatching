@@ -103,10 +103,10 @@ class Attention(nn.Module):
             k = self.rope(k, xpos)
                
         attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
+        attn_soft = attn.softmax(dim=-1)
+        attn_soft_drop = self.attn_drop(attn_soft)
 
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = (attn_soft_drop @ v).transpose(1, 2).reshape(B, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x, attn
@@ -163,10 +163,10 @@ class CrossAttention(nn.Module):
             k = self.rope(k, kpos)
             
         attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
+        attn_soft = attn.softmax(dim=-1)
+        attn_soft_drop = self.attn_drop(attn_soft)
 
-        x = (attn @ v).transpose(1, 2).reshape(B, Nq, C)
+        x = (attn_soft_drop @ v).transpose(1, 2).reshape(B, Nq, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x, attn

@@ -6,6 +6,7 @@ from PIL import Image
 from tqdm import tqdm
 import pandas as pd
 from torch.utils.data import DataLoader
+from torchvision import transforms 
 
 
 from utils_flow.img_processing_utils import pad_to_same_shape
@@ -19,6 +20,8 @@ from models.modules.mod import unnormalise_and_convert_mapping_to_flow
 
 from torchvision.utils import save_image 
 import torch.nn.functional as F
+from einops import rearrange 
+import cv2 
 
 
 def softmax_with_temperature(x, beta, d = 1):
@@ -29,15 +32,17 @@ def softmax_with_temperature(x, beta, d = 1):
         exp_x_sum = exp_x.sum(dim=d, keepdim=True)
         return exp_x / exp_x_sum
     
+    
 def soft_argmax(corr, beta=0.02):
         r'''SFNet: Learning Object-aware Semantic Flow (Lee et al.)'''
+        # corr: b HsWs Ht Wt 
         b,_,h,w = corr.size()   # b c h w   # b source tg_h tg_w
         
         x_normal = np.linspace(-1,1,w)
         x_normal = nn.Parameter(torch.tensor(x_normal, dtype=torch.float, requires_grad=False)).to('cuda')
         y_normal = np.linspace(-1,1,h)
         y_normal = nn.Parameter(torch.tensor(y_normal, dtype=torch.float, requires_grad=False)).to('cuda')
-        
+
         corr = softmax_with_temperature(corr, beta=beta, d=1)
         corr = corr.view(-1,h,w,h,w) # (tgt hxw) x (src hxw)
 
@@ -51,6 +56,7 @@ def soft_argmax(corr, beta=0.02):
         y_normal = y_normal.view(b,h,1,1)
         grid_y = (grid_y*y_normal).sum(dim=1, keepdim=True) # b x 1 x h x w
         return grid_x, grid_y
+
 
 def split_prediction_conf(predictions, with_conf=False):
     if not with_conf:
@@ -331,32 +337,44 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
     for i_batch, mini_batch in pbar:
         source_img = mini_batch['source_image'] # b 3 914 1380
         target_img = mini_batch['target_image']
-        flow_gt = mini_batch['flow_map'].to(device) # b 2 914 1380
+        flow_gt = mini_batch['flow_map'].to(device) # b 2 914 1380  # target 기준 ? 
         mask_valid = mini_batch['correspondence_mask'].to(device)
-   
-        # PHO WARP TEST
-        # src = mini_batch['source_image'].detach().cpu().float()    #   b 3 520 520
-        # tgt = mini_batch['target_image'].detach().cpu().float()
-        # flow = mini_batch['flow_map'].detach().cpu()    # b 2 520 520
         
-        # warped_tgt = warp(src, flow_gt.detach().cpu())    # b 3 914 1380
-        # save_image(src.float(), './hp_src.jpg',normalize=True)
-        # save_image(tgt.float(), './hp_tgt.jpg', normalize=True)
-        # save_image(warped_tgt, './hp_warped_tgt_gt.jpg', normalize=True)
+
+        # # PHO WARP TEST
+        # img_s = mini_batch['source_image'].unsqueeze(dim=0).detach().cpu().float()    #   b 3 914 1380
+        # img_t = mini_batch['target_image'].unsqueeze(dim=0).detach().cpu().float()
+        # gt_flow = mini_batch['flow_map'].unsqueeze(dim=0).detach().cpu()    # b 2 914 1380
+        # save_image(img_s,'./img_s.jpg', normalize=True)
+        # save_image(img_t,'./img_t.jpg', normalize=True)
+        # b,_,h,w=img_t.shape
+        # yy,xx=torch.meshgrid(torch.arange(h),torch.arange(w))
+        # grid=torch.stack([xx,yy]).repeat(b,1,1,1)
+        # mapping=grid+gt_flow
+        # mapping[:,0,:,:]=mapping[:,0,:,:]*2.0/max(w-1,1)-1.0
+        # mapping[:,1,:,:]=mapping[:,1,:,:]*2.0/max(h-1,1)-1.0
+        # img_t_warped = F.grid_sample(img_s, mapping.permute(0,2,3,1))
+        # save_image(img_t_warped, './img_t_warped.jpg', normalize=True)
         
-        # # reshaped 
-        # src224 = F.interpolate(src, (224,224), mode='bilinear', align_corners=False)
-        # tgt224 = F.interpolate(tgt, (224,224), mode='bilinear', align_corners=False)
-        # flow224 = F.interpolate(flow, (224,224), mode='bilinear', align_corners=False)
-        
-        # flow224[:,0,:,:] *= (224.0/1380)
-        # flow224[:,1,:,:] *= (224.0/914)
-        
-        # warped_tgt224_gt = warp(src224, flow224)
-        # save_image(src224, './hp_src224.jpg',normalize=True)
-        # save_image(tgt224, './hp_tgt224.jpg', normalize=True)
-        # save_image(warped_tgt224_gt, './hp_warped_tgt224_gt.jpg', normalize=True)
-          
+        # # PHO RESIZED TEST
+        # trans_resize = transforms.Resize((224,224))
+        # img_s224=trans_resize(img_s)
+        # img_t224=trans_resize(img_t)
+        # save_image(img_s224, './img_s224.jpg', normalize=True)
+        # save_image(img_t224, './img_t224.jpg', normalize=True)
+        # b,_,h224,w224=img_t224.shape
+        # yy,xx=torch.meshgrid(torch.arange(h224), torch.arange(w224))
+        # grid224=torch.stack([xx,yy]).repeat(b,1,1,1)
+        # flow224 = F.interpolate(gt_flow, (h224,w224), mode='bilinear', align_corners=True)
+        # flow224[:,0,:,:] *= (w224/w)
+        # flow224[:,1,:,:] *= (h224/h)
+        # mapping224=grid224+flow224
+        # mapping224[:,0,:,:]=mapping224[:,0,:,:]*2.0/max(w224-1,1)-1.0
+        # mapping224[:,1,:,:]=mapping224[:,1,:,:]*2.0/max(h224-1,1)-1.0
+        # img_t224_warped=F.grid_sample(img_s224, mapping224.permute(0,2,3,1))
+        # save_image(img_t224_warped, './img_t224_warped.jpg', normalize=True)
+        # breakpoint()
+         
         if estimate_uncertainty:
             flow_est, uncertainty_est = network.estimate_flow_and_confidence_map(source_img, target_img)
         elif 'croco' in args.model or 'dust3r' in args.model:
@@ -371,11 +389,11 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
             H_orig, W_orig = flow_gt.shape[2:]
             H_384, W_320 = args.image_shape
 
-            source_img = F.interpolate(source_img, size=(H_384, W_320), mode='bilinear', align_corners=False).to(device)
-            target_img = F.interpolate(target_img, size=(H_384, W_320), mode='bilinear', align_corners=False).to(device)
+            source_img = F.interpolate(source_img, size=(H_384, W_320), mode='bilinear', align_corners=True).to(device)
+            target_img = F.interpolate(target_img, size=(H_384, W_320), mode='bilinear', align_corners=True).to(device)
             
             mask_valid = F.interpolate(mask_valid.float().unsqueeze(0), size=(H_384, W_320), mode='nearest').squeeze(0).bool().to(device)
-            flow_gt = F.interpolate(flow_gt, size=(H_384, W_320), mode='bilinear', align_corners=False).to(device)    # b 2 380 384
+            flow_gt = F.interpolate(flow_gt, size=(H_384, W_320), mode='bilinear', align_corners=True).to(device)    # b 2 380 384
             
             flow_gt[:,0,:,:] *= (W_320/W_orig)
             flow_gt[:,1,:,:] *= (H_384/H_orig)
@@ -383,7 +401,7 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
             flow_est, feature1, feature2 = network(source_img, target_img)
             flow_est, flow_est_conf = split_prediction_conf(flow_est, with_conf=True) # b 2 320 384
             
-            # flow_est[:,0,:,:] *= (W_320/W_orig)  
+            # flow_est[:,0,:,:] *= (W_320/W_orig)   # 이미 network의 input은 (320,384)에 대해서 받았기에 flow도 이미 이 값들로 scaling되어 있음 
             # flow_est[:,1,:,:] *= (H_384/H_orig)
             flow_est *= -1    
             
@@ -410,7 +428,7 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
             # corr_map = corr(l2norm(feature1[-1].permute(0,2,1)), l2norm(feature2[-1].permute(0,2,1))).squeeze()
         
         else:
-            flow_est = network.estimate_flow(source_img, target_img)
+            flow_est = network.estimate_flow(source_img.unsqueeze(dim=0), target_img.unsqueeze(dim=0))
 
         flow_est = flow_est.permute(0, 2, 3, 1)[mask_valid]
         flow_gt = flow_gt.permute(0, 2, 3, 1)[mask_valid]
@@ -463,28 +481,38 @@ def run_evaluation_generic_camap(network, test_dataloader, device, estimate_unce
         elif 'croco' in args.model or 'dust3r' in args.model:
             in1k_mean = torch.tensor([0.485, 0.456, 0.406]).view(3,1,1)
             in1k_std =  torch.tensor([0.229, 0.224, 0.225]).view(3,1,1)
-            source_img = source_img.float()/255.
-            target_img = target_img.float()/255.
+            img_s = source_img.float()/255.
+            img_t = target_img.float()/255.
 
-            source_img = (source_img - in1k_mean) / in1k_std
-            target_img = (target_img - in1k_mean) / in1k_std
+            img_s_orig = (img_s - in1k_mean) / in1k_std      # b 3 H_orig W_orig
+            img_t_orig = (img_t - in1k_mean) / in1k_std
 
             H_orig, W_orig = flow_gt.shape[2:]
             H_384, W_320 = args.image_shape
-
-            source_img = F.interpolate(source_img, size=(H_384, W_320), mode='bilinear', align_corners=False).to(device)
-            target_img = F.interpolate(target_img, size=(H_384, W_320), mode='bilinear', align_corners=False).to(device)
             
+            # vis original src and tgt image 
+            save_image(img_s_orig, './img_s_orig.jpg',normalize=True)
+            save_image(img_t_orig, './img_t_orig.jpg',normalize=True)
+            
+            # resize original image to model input size
+            img_s = F.interpolate(img_s_orig, size=(H_384, W_320), mode='bilinear', align_corners=True).to(device)  # b 3 H_384 W_320
+            img_t = F.interpolate(img_t_orig, size=(H_384, W_320), mode='bilinear', align_corners=True).to(device)
             mask_valid = F.interpolate(mask_valid.float().unsqueeze(0), size=(H_384, W_320), mode='nearest').squeeze(0).bool().to(device)
-            flow_gt = F.interpolate(flow_gt, size=(H_384, W_320), mode='bilinear', align_corners=False).to(device)    # b 2 380 384
+            flow_gt = F.interpolate(flow_gt, size=(H_384, W_320), mode='bilinear', align_corners=True).to(device)    # b 2 380 384
             
-            flow_gt[:,0,:,:] *= (W_320/W_orig)
-            flow_gt[:,1,:,:] *= (H_384/H_orig)
+            flow_gt_H384_W320=flow_gt.clone()
+            flow_gt_H384_W320[:,0,:,:] *= (W_320/W_orig)  
+            flow_gt_H384_W320[:,1,:,:] *= (H_384/H_orig)
             
-            flow_est, feature1, feature2 = network(source_img, target_img)
+            # forward pass
+            flow_est, feature1, feature2 = network(img_t, img_s)
             flow_est, flow_est_conf = split_prediction_conf(flow_est, with_conf=True) # b 2 320 384
+                    
+            ########################## VIS CROSS ATTN MAPS (START) ###############################
             
-            # flow_est *= -1    # b 2 320 384     # source -> target flow 방향 맞추기
+            p_size=16
+            H_24=H_384//p_size  # num patch H
+            W_20=W_320//p_size  # num patch W 
             
             sa_maps=[]
             num_enc_blks=24
@@ -495,50 +523,119 @@ def run_evaluation_generic_camap(network, test_dataloader, device, estimate_unce
             num_dec_blks=12
             for i in range(num_dec_blks):
                 ca_maps.append(network.dec_blocks[i].ca_map)
-                
-            num_pH=H_384//16
-            num_pW=W_320//16
+            
             
             ca_maps = torch.cat(ca_maps)    # num_maps num_heads 480 480
-            ca_map = torch.mean(ca_maps, dim=(0,1)).unsqueeze(dim=0) # 1 480 480 (24 40 24 40)
+            head_map = ca_maps.mean(dim=0)  # averaged layers
+            layer_map = ca_maps.mean(dim=1) # averaged heads
             
-            grid_x, grid_y = soft_argmax(ca_map.view(1, -1, num_pH, num_pW))   # b 1 16 16 
-
-            # mapping(abolute pos), flow(relative pos)
-            mapping = torch.cat((grid_x, grid_y), dim=1)   # b 2 16 16 
-            flow = unnormalise_and_convert_mapping_to_flow(mapping)    # b 2 16 16
-            flow_up = F.interpolate(flow, (384,320), mode='bilinear', align_corners=False)
-            flow_up[:,0,:,:] *= (W_320/num_pW)
-            flow_up[:,1,:,:] *= (H_384/num_pW)
-            # flow_up *= -1.0 
+            # hook ca_maps that have not gone through softmax
+            ca_map = ca_maps.mean(dim=(0,1))    # averaged layers and heads
+            ca_map_sft=ca_map.softmax(dim=-1)   
             
-            warped_tgt = warp(source_img.detach().cpu(), flow_up.detach().cpu())  
-            gt_warped_tgt = warp(source_img.detach().cpu(), flow_gt.detach().cpu())
+            # convert to numpy to use cv2 library (ex.heatmap)
+            np_img_s = (img_s-img_s.min()) / (img_s.max()-img_s.min()) * 255.0 # [0,255]
+            np_img_t = (img_t-img_t.min())/(img_t.max()-img_t.min()) * 255.0   # [0,255]
+            np_img_s = np_img_s.squeeze().permute(1,2,0).detach().cpu().numpy() # 384 320 3
+            np_img_t = np_img_t.squeeze().permute(1,2,0).detach().cpu().numpy()
+            
+            # H_24: 0~23    4 10 16 22
+            # W_20: 0~19    7 12 17 23 
+            vis_points=[(4,4),(4,12),(10,4),(10,12),(16,4),(16,12)]  # manually assign four points to vis cross attention map
+            for points in vis_points:
+                idx_h=points[0]     # to vis idx_h
+                idx_w=points[1]     # to vis idx_w
+                idx_n=idx_h*W_20+idx_w  # to vis token idx
+                
+                # plot white pixel to vis tkn location
+                vis_np_img_t = np_img_t.copy()  # same as clone()
+                vis_np_img_t[idx_h*p_size:(idx_h+1)*p_size, idx_w*p_size:(idx_w+1)*p_size,:]=255  
+                 
+                # generate attn heat map
+                attn_msk=ca_map_sft[idx_n]  # 480
+                attn_msk=attn_msk.view(1,1,H_24,W_20)
+                attn_msk=F.interpolate(attn_msk, size=(H_384,W_320), mode='bilinear', align_corners=True)
+                attn_msk=(attn_msk-attn_msk.min())/(attn_msk.max()-attn_msk.min())  # [0,1]
+                attn_msk=attn_msk.squeeze().detach().cpu().numpy()*255  # [0,255]
+                heat_mask=cv2.applyColorMap(attn_msk.astype(np.uint8), cv2.COLORMAP_JET)
+                
+                # overlap heat_mask to source image
+                img_s_attn_msked = np_img_s[:,:,[2,1,0]] + heat_mask 
+                img_s_attn_msked = (img_s_attn_msked-img_s_attn_msked.min())/(img_s_attn_msked.max()-img_s_attn_msked.min())*255.0
+                
+                if id < 5:
+                    log_img_path=f'{args.save_dir}/vis_ca_map/frame1{k}/h{idx_h}_w{idx_w}'
+                    if not os.path.exists(log_img_path):
+                        os.makedirs(log_img_path)
+                        
+                    cv2.imwrite(f'{log_img_path}/{i_batch}_img_s.jpg', np_img_s[:,:,[2,1,0]])
+                    cv2.imwrite(f'{log_img_path}/{i_batch}_img_t.jpg', vis_np_img_t[:,:,[2,1,0]])  
+                    cv2.imwrite(f'{log_img_path}/{i_batch}_img_s_attn_msked.jpg', img_s_attn_msked)
+                    
+            ########################## VIS CROSS ATTN MAPS (END) ###############################
+            
+            
+            
+            ########################## WARP FLOW (START) ###############################
+            
+            b=1
+            yy,xx=torch.meshgrid(torch.arange(H_384),torch.arange(W_320))
+            grid=torch.stack([xx,yy]).repeat(b,1,1,1).cuda()
+            
+            # warped_t using gt_flow
+            map_t_gt = grid + flow_gt_H384_W320
+            map_t_gt[:,0,:,:]=map_t_gt[:,0,:,:]*2.0/max(W_320,1)-1.0
+            map_t_gt[:,1,:,:]=map_t_gt[:,1,:,:]*2.0/max(H_384-1,1)-1.0
+            warped_t_gt = F.grid_sample(img_s, map_t_gt.permute(0,2,3,1))
+                   
+            # warped_t using pred_flow
+            map_t_pred = grid + flow_est
+            map_t_pred[:,0,:,:]=map_t_pred[:,0,:,:]*2.0/max(W_320-1,1)-1.0
+            map_t_pred[:,1,:,:]=map_t_pred[:,1,:,:]*2.0/max(H_384-1,1)-1.0
+            warped_t_pred=F.grid_sample(img_s, map_t_pred.permute(0,2,3,1))
+                 
+            # warped_t using ca_map
+            ca_map[:,0]=ca_map.min()
+            # ca_map_sft=ca_map.softmax(dim=-1)
+            ca_map_sft = rearrange(ca_map.unsqueeze(dim=0), 'b (Ht Wt) (Hs Ws) -> b (Hs Ws) Ht Wt', Hs=H_24, Ws=W_20, Ht=H_24, Wt=W_20)
+            BETA=2e-2
+            grid_x, grid_y = soft_argmax(ca_map_sft, beta=BETA)   # target aligned
+            
+            mapping_camap = torch.cat([grid_x,grid_y],dim=1)    # b 2 16 16  
+            flow_camap = unnormalise_and_convert_mapping_to_flow(mapping_camap)
+            flow_camap = F.interpolate(flow_camap, (H_384,W_320), mode='bilinear', align_corners=True)
+            flow_camap[:,0,:,:] *= (W_320/W_20)
+            flow_camap[:,1,:,:] *= (H_384/H_24)
+            
+            map_t_camap=grid+flow_camap
+            map_t_camap[:,0,:,:]=map_t_camap[:,0,:,:]*2.0/max(W_320-1,1)-1.0
+            map_t_camap[:,1,:,:]=map_t_camap[:,1,:,:]*2.0/max(H_384-1,1)-1.0
+            warped_t_camap=F.grid_sample(img_s,map_t_camap.permute(0,2,3,1))
+            
             
             if id < 5:
-                log_img_path=f'{args.save_dir}/ca_map/frame1{k}'
+                log_img_path=f'{args.save_dir}/warp_ca_map/BETA{str(BETA)}/frame1{k}'
                 if not os.path.exists(log_img_path):
                     os.makedirs(log_img_path)
+                    
+                save_image(img_s, f'{log_img_path}/{i_batch}_img_s.jpg', normalize=True)
+                save_image(img_t, f'{log_img_path}/{i_batch}_img_t.jpg', normalize=True)
+                save_image(warped_t_gt, f'{log_img_path}/{i_batch}_img_warped_t_gt.jpg', normalize=True)
+                save_image(warped_t_pred, f'{log_img_path}/{i_batch}_img_warped_t_pred.jpg', normalize=True)
+                save_image(warped_t_camap*mask_valid, f'{log_img_path}/{i_batch}_img_warped_t_camap.jpg',normalize=True)
+ 
+            ########################## WARP FLOW (END) ###############################
             
-                save_image(source_img.detach().cpu(), f'{log_img_path}/{i_batch}_img_src.jpg', normalize=True)
-                save_image(target_img, f'{log_img_path}/{i_batch}_img_tgt.jpg', normalize=True)
-                save_image(warped_tgt, f'{log_img_path}/{i_batch}_img_wrp_tgt.jpg',              normalize=True)
-                save_image(gt_warped_tgt, f'{log_img_path}/{i_batch}_img_wrp_tgt_GT.jpg',        normalize=True)
             
-            breakpoint()
-            
-            # def corr(src, trg):
-            #     return src.flatten(2).transpose(-1, -2) @ trg.flatten(2)
-            
-            # def l2norm(feature, dim=1):
-            #     epsilon = 1e-6
-            #     norm = torch.pow(torch.sum(torch.pow(feature, 2), dim) + epsilon, 0.5).unsqueeze(dim).expand_as(feature)
-            #     return torch.div(feature, norm)
-            # corr_map = corr(l2norm(feature1[-1].permute(0,2,1)), l2norm(feature2[-1].permute(0,2,1))).squeeze()
-        
         else:
             flow_est = network.estimate_flow(source_img, target_img)
 
+
+        # 
+        flow_est=flow_est
+        flow_gt=flow_gt_H384_W320
+        
+ 
         flow_est = flow_est.permute(0, 2, 3, 1)[mask_valid]
         flow_gt = flow_gt.permute(0, 2, 3, 1)[mask_valid]
 

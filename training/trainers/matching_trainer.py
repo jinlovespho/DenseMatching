@@ -63,7 +63,7 @@ class MatchingTrainer(BaseTrainer):
             data['iter'] = i
             data['settings'] = self.settings
 
-            breakpoint()
+            # breakpoint()
             # save_image(data['source_image'].to(torch.float32), './img_src.jpg', normalize=True)
             # save_image(data['target_image'].to(torch.float32), './img_tgt.jpg', normalize=True)
             

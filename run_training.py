@@ -37,7 +37,7 @@ def run_training(train_module, train_name, seed, cudnn_benchmark=True):
     settings.seed = seed
 
     # will save the checkpoints there
-
+    
     save_dir = os.path.join(settings.env.workspace_dir, settings.project_path)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)

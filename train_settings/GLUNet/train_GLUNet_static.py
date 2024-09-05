@@ -88,10 +88,9 @@ def run(settings):
                                    batch_processing=batch_processing)
 
     # 7. Define Optimizer
-    optimizer = \
-        optim.Adam(filter(lambda p: p.requires_grad, model.parameters()),
-                   lr=settings.lr,
-                   weight_decay=0.0004)
+    optimizer = optim.Adam( filter(lambda p: p.requires_grad, model.parameters()),
+                            lr=settings.lr,
+                            weight_decay=0.0004)
 
     # 8. Define Scheduler
     scheduler = lr_scheduler.MultiStepLR(optimizer,

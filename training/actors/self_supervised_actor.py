@@ -155,7 +155,7 @@ class GLUNetBasedActor(BaseActor):
         save_image(tgt, './tmp_tgt.jpg', normalize=True)
         save_image(output, './tmp_output.jpg', normalize=True)
         
-        breakpoint()
+        # breakpoint()
         
         output_net_256, output_net_original = self.net(mini_batch['target_image'], mini_batch['source_image'],
                                                        mini_batch['target_image_256'], mini_batch['source_image_256'])

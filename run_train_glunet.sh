@@ -1,1 +1,1 @@
-CUDA_VISIBLE_DEVICES=0 python run_training.py GLUNet train_GLUNet_static
+CUDA_VISIBLE_DEVICES=3 python run_training.py GLUNet train_GLUNet_static

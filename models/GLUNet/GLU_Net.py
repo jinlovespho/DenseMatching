@@ -175,7 +175,7 @@ class GLUNetModel(BaseGLUMultiScaleMatchingNet):
         b, _, h_256, w_256 = im_target_256.size()  # fixed size of 256x256
         div = 1.0
 
-        breakpoint()
+        # breakpoint()
         # target(c1_) c11 c12 c13 c14
         # source(c2_) c21 c22 c23 c24 
         c14, c24, c13, c23, c12, c22, c11, c21 = self.extract_features(im_target, im_source, im_target_256,
@@ -214,7 +214,7 @@ class GLUNetModel(BaseGLUMultiScaleMatchingNet):
         => 
         '''
         
-        breakpoint()
+        # breakpoint()
         # conversion to flow and from there constrained correlation
         flow4 = unnormalise_and_convert_mapping_to_flow(est_map4)
         # we want flow4 to be scaled for h_256xw_256, so we multiply by these ratios.

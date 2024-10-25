@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=6 python run_training.py PDCNet train_PDCNet_stage1

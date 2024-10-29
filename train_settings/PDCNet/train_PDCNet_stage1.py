@@ -21,9 +21,10 @@ from datasets.object_augmented_dataset.synthetic_object_augmentation_for_pairs_m
 def run(settings, args=None):
     settings.description = 'Default train settings for PDC-Net stage 1'
     settings.data_mode = 'local'
-    settings.batch_size = 15  # train on 2GPU of 11GB
+    # settings.batch_size = 15  # train on 2GPU of 11GB
+    settings.batch_size = args.batch_size 
     settings.n_threads = 8
-    settings.multi_gpu = True
+    settings.multi_gpu = False
     settings.print_interval = 50
     settings.lr = 0.0001
     settings.scheduler_steps = [30, 40]

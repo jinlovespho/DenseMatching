@@ -112,10 +112,18 @@ class MixtureDensityEstimatorFromCorr(nn.Module):
                 self.predict_uncertainty_final = nn.Conv2d(16, output_channels, kernel_size=3, stride=1, padding=1, bias=True)
 
     def forward(self, x, previous_uncertainty=None, flow=None, x_second_corr=None):
+        # breakpoint()
         # x shape is b, s*s, h, w
         b, _, h, w = x.size()
-        x = x.permute(0, 2, 3, 1).contiguous().view(b*h*w, self.search_size, self.search_size).unsqueeze(1).contiguous()
+        x = x.permute(0, 2, 3, 1).contiguous().view(b*h*w, self.search_size, self.search_size).unsqueeze(1).contiguous()    # 논문에서 말한 h,w 를 batch dim 으로 가져와
         # x is now shape b*h*w, 1, s, s
+
+        '''
+            위에 작업이 무엇을 하는지 이해해보자 
+            현재 tgt feat c14: b 512 16 16 , src feat c24: b 512 16 16 의 global corr 이 x: b 256 16 16 (b H_s*W_s H_t W_t) 인 것.
+            여기서 우리는 하나의 target pixel 이 source 와 대응 되는 모든 match들. H_s*W_s 를 (c H_s W_s) 로 펴서 conv를 태우고 싶은 것 
+        '''
+
 
         if x_second_corr is not None:
             x_second_corr = x_second_corr.permute(0, 2, 3, 1).contiguous().view(b * h * w, self.search_size, self.search_size).unsqueeze(1).contiguous()
@@ -128,7 +136,8 @@ class MixtureDensityEstimatorFromCorr(nn.Module):
             previous_uncertainty = previous_uncertainty.permute(0, 2, 3, 1).contiguous().view(b * h * w, -1).unsqueeze(2).unsqueeze(2)
             previous_uncertainty = previous_uncertainty.repeat(1, 1, self.search_size, self.search_size)
             x = torch.cat((x, previous_uncertainty), 1)
-
+            x = self.conv_4(self.conv_3(x))
+            # x is now shape b*h*w, 16, 1, 1
         if self.search_size == 9:
             x = self.conv_2(self.conv_1(self.conv_0(x)))
             uncertainty_corr = self.predict_uncertainty(x)
@@ -136,7 +145,8 @@ class MixtureDensityEstimatorFromCorr(nn.Module):
             x = self.conv_0(x)
             x = self.maxpool(x)
             x = self.conv_2(self.conv_1(x))
-            uncertainty_corr = self.predict_uncertainty(x)
+            uncertainty_corr = self.predict_uncertainty(x)      # 얘도 다른게 아니고 다 conv로 이루어짐.    # (b*H_t*W_t 6 1 1) 
+                                                                # 이것의 의미하는 것은 모든 target pixel 별로, 6개 값(channel)을 뱉은 것                                       
         elif self.search_size == 14:
             x = self.conv_0(x)
             x = self.maxpool(x)
@@ -175,8 +185,8 @@ class MixtureDensityEstimatorFromCorr(nn.Module):
                     proba_map = uncertainty[:, 1:]
                     return log_var_map, proba_map
         else:
-            uncertainty_corr = uncertainty_corr.squeeze().view(b, h, w, -1).permute(0, 3, 1, 2).contiguous()
-            if self.output_all_channels_together:
+            uncertainty_corr = uncertainty_corr.squeeze().view(b, h, w, -1).permute(0, 3, 1, 2).contiguous()    # make shape back to (b*H_t*W_t 6 1 1) -> (b 6 H_t W_t)
+            if self.output_all_channels_together:   # true
                 return uncertainty_corr
             else:
                 if self.estimate_small_variance:
@@ -212,12 +222,16 @@ class MixtureDensityEstimatorFromUncertaintiesAndFlow(nn.Module):
             self.predict_uncertainty_final = nn.Conv2d(16, output_channels, kernel_size=3, stride=1, padding=1, bias=True)
 
     def forward(self, x):
+        '''
+            x is the uncertainty: (b 6 h w) concatenated with flow (b 2 or c h w)
+        '''
+        # breakpoint()
         x = self.conv_1(self.conv_0(x))
-        uncertainty = self.predict_uncertainty_final(x)
-        if self.output_all_channels_together:
+        uncertainty = self.predict_uncertainty_final(x) # b 3 h w
+        if self.output_all_channels_together:   # false
             return uncertainty
-        else:
-            if self.estimate_small_variance:
+        else:   # true
+            if self.estimate_small_variance:    # false
                 # shape is b*h*w, 4, 1, 1
                 large_log_var = uncertainty[:, 0].unsqueeze(1)
                 small_var = uncertainty[:, 1].unsqueeze(1)
@@ -226,11 +240,12 @@ class MixtureDensityEstimatorFromUncertaintiesAndFlow(nn.Module):
                 if self.output_channels == 1:
                     proba_map = torch.ones_like(large_log_var)
                     # in case one only predicts the log variance (unimodel distribution)
-                else:
+                else:   
                     proba_map = uncertainty[:, 2:]
                 return large_log_var, small_log_var, proba_map
             else:
                 # shape is b, 3, h, w
+                # why uncertainty channel 3?
                 log_var_map = uncertainty[:, 0].unsqueeze(1)  # always one that is not fixed
                 if self.output_channels == 1:
                     proba_map = torch.ones_like(log_var_map)

@@ -332,6 +332,7 @@ class GlobalGOCor(nn.Module):
             losses: dictionary containing the losses computed during optimization
         """
 
+        # breakpoint()
         # reshape both feature maps to size (number_of_images, sequences, feat_dim, H,W), where sequences = b
         reference_feat = reference_feat.view(1, *reference_feat.shape[-4:])
         query_feat = query_feat.view(1, *query_feat.shape[-4:])

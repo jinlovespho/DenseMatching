@@ -29,7 +29,7 @@ def run(settings, args=None):
     settings.data_mode = 'local'
     settings.batch_size = args.batch_size #24
     settings.n_threads = 8
-    settings.multi_gpu = False
+    settings.multi_gpu = args.multi_gpu
     settings.print_interval = 100
     settings.lr = 0.0001 if args.lr == None else args.lr
     settings.scheduler_steps = [100, 120, 130]
@@ -47,7 +47,7 @@ def run(settings, args=None):
                                       flow_transform=flow_transform,
                                       co_transform=co_transform,
                                       split=1,
-                                      get_mapping=False, img_size=(224,224))
+                                      get_mapping=False, img_size=args.img_size)
 
     # validation dataset
     _, val_dataset = PreMadeDataset(root=settings.env.validation_cad_520,
@@ -55,7 +55,7 @@ def run(settings, args=None):
                                     target_image_transform=img_transforms,
                                     flow_transform=flow_transform,
                                     co_transform=co_transform,
-                                    split=0, img_size=(224,224))
+                                    split=0, img_size=args.img_size)
 
     # 2. Define dataloaders
     train_loader = Loader('train', train_dataset, batch_size=settings.batch_size, shuffle=True,
@@ -142,6 +142,6 @@ def run(settings, args=None):
                                          gamma=0.5)
 
     # 9. Define Trainer
-    trainer = MatchingTrainer(CrocoActor, [train_loader, val_loader], optimizer, settings, lr_scheduler=scheduler)
+    trainer = MatchingTrainer(CrocoActor, [train_loader, val_loader], optimizer, settings, lr_scheduler=scheduler, args=args)
 
     trainer.train(settings.n_epochs, load_latest=args.load_latest, fail_safe=True)

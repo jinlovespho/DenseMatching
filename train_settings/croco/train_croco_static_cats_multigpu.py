@@ -20,6 +20,8 @@ from models.croco.croco_downstream import croco_args_from_ckpt, CroCoDownstreamB
 from models.croco.croco import CroCoNet
 from models.croco.head_downstream import PixelwiseTaskWithDPT
 from models.croco.pos_embed import interpolate_pos_embed
+from training.losses.neg_log_likelihood import NLLMixtureLaplace
+from training.losses.multiscale_loss import MultiScaleMixtureDensity
 
 
 def run(settings, args=None):
@@ -39,13 +41,15 @@ def run(settings, args=None):
     flow_transform = transforms.Compose([ArrayToTensor()])  # just put channels first and put it to float
     co_transform = None
 
+
+
     train_dataset, _ = PreMadeDataset(root=settings.env.training_cad_520,
                                       source_image_transform=img_transforms,
                                       target_image_transform=img_transforms,
                                       flow_transform=flow_transform,
                                       co_transform=co_transform,
                                       split=1,
-                                      get_mapping=False, img_size=(224,224))
+                                      get_mapping=False, img_size=args.img_size)
 
     # validation dataset
     _, val_dataset = PreMadeDataset(root=settings.env.validation_cad_520,
@@ -53,7 +57,7 @@ def run(settings, args=None):
                                     target_image_transform=img_transforms,
                                     flow_transform=flow_transform,
                                     co_transform=co_transform,
-                                    split=0, img_size=(224,224))
+                                    split=0, img_size=args.img_size)
 
     # 2. Define dataloaders
     train_loader = Loader('train', train_dataset, batch_size=settings.batch_size, shuffle=True,

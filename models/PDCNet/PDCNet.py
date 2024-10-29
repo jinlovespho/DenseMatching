@@ -296,11 +296,11 @@ class PDCNetModel(ProbabilisticGLU):
                                         up_previous_uncertainty=None, global_local='global_corr'):
         # corr uncertainty decoder
         x_second_corr = None
-        if 'gocor' in corr_type.lower():
+        if 'gocor' in corr_type.lower():    # true
             if self.corr_for_corr_uncertainty_decoder == 'gocor':
                 input_corr_uncertainty_dec = corr
-            elif self.corr_for_corr_uncertainty_decoder == 'corr':
-                input_corr_uncertainty_dec = getattr(self, global_local)(c_target, c_source)
+            elif self.corr_for_corr_uncertainty_decoder == 'corr':  # true
+                input_corr_uncertainty_dec = getattr(self, global_local)(c_target, c_source)    # 다른게 아니고 그냥 c_tgt, c_src 사이에 global corr 구한  b 256 16 16 (b H_s*W_s H_t W_t)
 
             elif self.corr_for_corr_uncertainty_decoder == 'corr_and_gocor':
                 input_corr_uncertainty_dec = getattr(self, global_local)(c_target, c_source)
@@ -310,24 +310,41 @@ class PDCNetModel(ProbabilisticGLU):
         else:
             input_corr_uncertainty_dec = corr
 
-        corr_uncertainty = corr_uncertainty_module(input_corr_uncertainty_dec, x_second_corr=x_second_corr)
+        '''
+            이미 구해서 얻은 
+            corr: b 256 16 16 과 
+            input_corr_uncertainty_dec: b 256 16 16
+            이 둘로 Uncertainty 를 아래에서 또 모델링 하는 것
+        '''
+
+        corr_uncertainty = corr_uncertainty_module(input_corr_uncertainty_dec, x_second_corr=x_second_corr)     # x_second_corr 는 None ? 이네?
+        # b 6 16 16 ( where 6 is predicted for each pixel. 6 values for uncertainty i guess)
 
         # final uncertainty decoder
-        if up_previous_flow is not None and up_previous_uncertainty is not None:
+        if up_previous_flow is not None and up_previous_uncertainty is not None:    # false 다음 stage 에서는 True. 즉 이전 stage flow 있으면 concat
             input_uncertainty = torch.cat((corr_uncertainty, flow,
                                            up_previous_uncertainty, up_previous_flow), 1)
         else:
-            input_uncertainty = torch.cat((corr_uncertainty, flow), 1)
+            input_uncertainty = torch.cat((corr_uncertainty, flow), 1)  # uncertainty 와 flow concat
 
+        # 아래 통과하면, uncertainty (b 6 h w) -> (b 3 h w) 로 최종모델링되고, log_var_map과 weight_map 이 channel=1, channel=2 개씩 나눠갖는다
+        # log_var_map = b 1 h w 
+        # weight_map =  b 2 h w 
         large_log_var_map, weight_map = uncertainty_predictor(input_uncertainty)
         return large_log_var_map, weight_map
 
     def estimate_at_mappinglevel(self, corr_uncertainty_module, uncertainty_predictor, c14, c24, h_256, w_256):
+        '''
+            c14: target last feature: b 512 16 16 
+            c24: source last feature: b 512 16 16 
+        '''
+        
+        # breakpoint()
         # level 4: 16x16
         ratio_x = 16.0 / float(w_256)
         ratio_y = 16.0 / float(h_256)
 
-        corr4 = self.get_global_correlation(c14, c24)
+        corr4 = self.get_global_correlation(c14, c24)   # (b 256 16 16): b H_s*W_s H_t W_t: target aligned 
         b, c, h, w = corr4.size()
         if torch.cuda.is_available():
             init_map = torch.FloatTensor(b, 2, h, w).zero_().cuda()
@@ -336,40 +353,52 @@ class PDCNetModel(ProbabilisticGLU):
 
         # flow decoder, estimating flow
         x4, est_map4 = self.decoder4(x1=corr4, x3=init_map)
+        '''
+            - self.decoder4 는 conv blocks 로 이루어짐
+            - x1 는 cost volume (b H_s*W_s H_t W_t)
+            - x3 는 그냥 zero initialized empty grid (b 2 H_t W_t)
+            - self.decoder4 에서는 x1, x3 를 concat(dim=1) 그리고 conv 태우는 것 뿐.
+            - 그리고 최종적으로 est_map4 = conv(x4) 를 얻음
+        '''
         flow4 = unnormalise_and_convert_mapping_to_flow(est_map4) / self.div
         flow4[:, 0, :, :] /= ratio_x
         flow4[:, 1, :, :] /= ratio_y
 
+        # uncertainty -> b 3 h w 
+        # where large_log_var_map4 = b 1 h w
+        # weight_map4 = b 2 h w
+        # 로 나눠갖는다 
+
         # uncertainty decoder
-        if self.give_layer_before_flow_to_uncertainty_decoder:
+        if self.give_layer_before_flow_to_uncertainty_decoder:  # true
             large_log_var_map4, weight_map4 = self.estimate_uncertainty_components(corr_uncertainty_module,
                                                                                    uncertainty_predictor,
-                                                                                   self.params.global_corr_type,
-                                                                                   corr4, c14, c24, x4,
+                                                                                   self.params.global_corr_type,    # "GlobalGOCor"
+                                                                                   corr4, c14, c24, x4,             # flow 대신에 x4 넣음. x4 b 32 16 16
                                                                                    global_local='use_global_corr_layer')
         else:
             large_log_var_map4, weight_map4 = self.estimate_uncertainty_components(corr_uncertainty_module,
                                                                                    uncertainty_predictor,
                                                                                    self.params.global_corr_type,
-                                                                                   corr4, c14, c24, flow4,
+                                                                                   corr4, c14, c24, flow4,          # flow4 는 b 2 16 16
                                                                                    global_local='use_global_corr_layer')
 
+        # breakpoint()
         # constrain the large log var map
-        large_log_var_map4 = self.constrain_large_log_var_map(self.var_2_minus, self.var_2_plus_256, large_log_var_map4)
-        if self.estimate_three_modes:
+        large_log_var_map4 = self.constrain_large_log_var_map(self.var_2_minus, self.var_2_plus_256, large_log_var_map4)    # b 1 16 16
+        if self.estimate_three_modes:   # false
             # make the other fixed variances
             small_log_var_map4 = torch.ones_like(large_log_var_map4, requires_grad=False) * torch.log(
                 self.var_1_minus_plus)
             outlier_log_var_map4 = torch.ones_like(large_log_var_map4, requires_grad=False) * torch.log(
                 self.var_3_minus_plus_256)
-
             log_var_map4 = torch.cat((small_log_var_map4, large_log_var_map4, outlier_log_var_map4), 1)
-        elif self.estimate_one_mode:
+        elif self.estimate_one_mode:    # false
             log_var_map4 = large_log_var_map4
-        else:
+        else:   # true
             # only 2 modes
             small_log_var_map4 = torch.ones_like(large_log_var_map4, requires_grad=False) * torch.log(self.var_1_minus_plus)
-            log_var_map4 = torch.cat((small_log_var_map4, large_log_var_map4), 1)
+            log_var_map4 = torch.cat((small_log_var_map4, large_log_var_map4), 1)   # b 2 16 16
         return flow4, log_var_map4, weight_map4, corr4
 
     def estimate_at_flowlevel(self, ratio, c_t, c_s, up_flow, up_uncertainty_components, decoder, PWCNetRefinement,
@@ -382,11 +411,11 @@ class PDCNetModel(ProbabilisticGLU):
         c_s_warped = self.warp(c_s, up_flow_warping)
 
         corr = self.get_local_correlation(c_t, c_s_warped)
-        if self.params.decoder_inputs == 'corr_flow_feat':
+        if self.params.decoder_inputs == 'corr_flow_feat':  # true
             if up_feat is not None:
-                input_flow_dec = torch.cat((corr, up_flow, up_feat), 1)
-            else:
-                input_flow_dec = torch.cat((corr, up_flow), 1)
+                input_flow_dec = torch.cat((corr, up_flow, up_feat), 1)   
+            else:  # true
+                input_flow_dec = torch.cat((corr, up_flow), 1)  # b 81+2 32 32
         elif self.params.decoder_inputs == 'feature':
             input_flow_dec = torch.cat((corr, c_t), 1)
         elif self.params.decoder_inputs == 'flow_and_feat_and_feature':
@@ -398,21 +427,26 @@ class PDCNetModel(ProbabilisticGLU):
         else:
             raise NotImplementedError
 
-        input_flow_dec = torch.cat((input_flow_dec, up_uncertainty_components), 1)
-
+        # breakpoint()
+        input_flow_dec = torch.cat((input_flow_dec, up_uncertainty_components), 1)   # 즉 위에꺼랑 종합하면, input_flow_dec = concat(corr, up_flow, up_uncertainty_components) 이네
+        # input_flow_dec: b 81+2+4 32 32 where, 81(corr) + 2(up_flow) + 4(up_uncertainty_components)
+        
         x, res_flow = decoder(input_flow_dec)
+        # x: b 32 32 32
+        # res_flow: b 2 32 32
+
         x_ = torch.zeros_like(x.detach())
 
-        if refinement:
+        if refinement:  # true
             input_refinement = res_flow + up_flow
             x_ = torch.cat((x, input_refinement), 1)
             x_, res_flow_ = getattr(self, PWCNetRefinement)(x_)
             res_flow = res_flow + res_flow_
 
-        flow = res_flow + up_flow
+        flow = res_flow + up_flow   # b 2 32 32 
 
         # uncertainty decoder
-        if self.give_layer_before_flow_to_uncertainty_decoder:
+        if self.give_layer_before_flow_to_uncertainty_decoder:  # true
             large_log_var_map, weight_map = self.estimate_uncertainty_components(corr_uncertainty_module,
                                                                                  uncertainty_predictor,
                                                                                  self.params.local_corr_type, corr,
@@ -450,18 +484,20 @@ class PDCNetModel(ProbabilisticGLU):
         # up scaling
         output_size = [int(x) for x in output_size]
 
-        if deconv is not None:
-            up_flow = deconv(flow)
-        else:
+        if deconv is not None:  # true
+            up_flow = deconv(flow)  # b 2 16 16 -> b 2 32 32
+        else:   # false
             up_flow = F.interpolate(input=flow, size=output_size, mode='bilinear', align_corners=False)
 
         up_feat = None
         if upfeat_layer is not None:
             up_feat = upfeat_layer(x)
 
+        # weight map 은 manually interpolate 으로 두 배 키움
         up_probability_map = F.interpolate(input=weight_map, size=output_size, mode='bilinear', align_corners=False)
 
-        if self.estimate_three_modes:
+        # 아래 var_map 도 결과적으로 interpolate 으로 두 배 키우긴하네
+        if self.estimate_three_modes:   # false
             up_large_log_var_map = F.interpolate(input=log_var_map[:, 1].unsqueeze(1), size=output_size,
                                                  mode='bilinear', align_corners=False)
             up_small_log_var_map = torch.ones_like(up_large_log_var_map, requires_grad=False) * torch.log(
@@ -469,11 +505,11 @@ class PDCNetModel(ProbabilisticGLU):
             up_outlier_log_var_map = torch.ones_like(up_large_log_var_map, requires_grad=False) * torch.log(
                 self.var_3_minus_plus)
             up_log_var_map = torch.cat((up_small_log_var_map, up_large_log_var_map, up_outlier_log_var_map), 1)
-        elif self.estimate_one_mode:
+        elif self.estimate_one_mode:    # false
             up_large_log_var_map = F.interpolate(input=log_var_map, size=output_size,
                                                  mode='bilinear', align_corners=False)
             up_log_var_map = up_large_log_var_map
-        else:
+        else:   # true
             up_large_log_var_map = F.interpolate(input=log_var_map[:, 1].unsqueeze(1), size=output_size,
                                                  mode='bilinear', align_corners=False)
             up_small_log_var_map = torch.ones_like(up_large_log_var_map, requires_grad=False) * torch.log(
@@ -532,9 +568,26 @@ class PDCNetModel(ProbabilisticGLU):
                     original (high resolution) input resolution
                     The uncertainty estimates correspond to the log_var_map and weight_map for both levels.
         """
+
         # im1 is target image, im2 is source image
         b, _, h_original, w_original = im_target.size()
         b, _, h_256, w_256 = im_target_256.size()
+
+        
+        '''
+        VGG extracted features:
+            target: 
+                c11 : b 128 130 130     H-Net 
+                c12 : b 256 65 65     
+                c13 : b 256 32 32       L-Net 
+                c14 : b 512 16 16       
+
+            source:
+                c21 : b 128 130 130     H-Net 
+                c22 : b 256 65 65
+                c23 : b 256 32 32       L-Net 
+                c24 : b 512 16 16      
+        '''
 
         c14, c24, c13, c23, c12, c22, c11, c21 = self.extract_features(im_target, im_source,
                                                                        im_target_256, im_source_256,
@@ -542,7 +595,6 @@ class PDCNetModel(ProbabilisticGLU):
                                                                        im_source_pyr=im_source_pyr,
                                                                        im_target_pyr_256=im_target_pyr_256,
                                                                        im_source_pyr_256=im_source_pyr_256)
-
         
 
         # RESOLUTION 256x256
@@ -550,6 +602,13 @@ class PDCNetModel(ProbabilisticGLU):
         flow4, log_var_map4, weight_map4,  corr4 = self.estimate_at_mappinglevel(self.corr_uncertainty_decoder4,
                                                                                  self.uncertainty_decoder4,
                                                                                  c14, c24, h_256, w_256)
+        '''
+            flow4: b 2 16 16        # c14 와 c24의 corr map 을 conv 통과시켜서 mapping 얻고, unnorm_convert_to_flow 를 통해 얻은 flow4
+            log_var_map4: b 2 16 16 
+            weight_map4: b 2 16 16  
+            corr4: b 256 16 16      # c14 와 c24 의 correlation map
+        '''
+
         # grid_x, grid_y = self.soft_argmax(corr4,beta=2e-2)
         # self.grid_x = grid_x
         # self.grid_y = grid_y
@@ -562,11 +621,18 @@ class PDCNetModel(ProbabilisticGLU):
         up_flow4, up_log_var_map4, up_probability_map4, up_feat4 = self.upscaling(_, flow4, log_var_map4,
                                                                                   weight_map4, (32, 32),
                                                                                   deconv=self.deconv4)
-        if self.estimate_one_mode:
-            up_uncertainty_components4 = up_log_var_map4
-        else:
-            up_uncertainty_components4 = torch.cat((up_log_var_map4, up_probability_map4), 1)
+        '''
+            up_flow4: b 2 32 32
+            up_log_var_map4: b 2 32 32
+            up_probability_map4: b 2 32 32  # weight map 을 upscale 한것뿐, 이름을 왜 prob으로 지어..
+            up_feat4: None
+        '''
 
+        if self.estimate_one_mode:  # false
+            up_uncertainty_components4 = up_log_var_map4
+        else:   # true
+            up_uncertainty_components4 = torch.cat((up_log_var_map4, up_probability_map4), 1)   # b 4 32 32 where 4 = 2(var) + 2(weight)(prob)
+        
         # level 3: 32x32
         x3, flow3, log_var_map3, weight_map3 = self.estimate_at_flowlevel(ratio=32.0 / float(w_256),
                                                                           c_t=c13, c_s=c23,
@@ -580,23 +646,39 @@ class PDCNetModel(ProbabilisticGLU):
                                                                           sigma_max=self.var_2_plus_256,
                                                                           up_feat=None, div=1.0,
                                                                           refinement=self.params.refinement_at_adaptive_reso)
+        
+        '''
+            x3: b 32 32 32  # 위에서 마찬가지로, flow3 를 conv 통과해서 얻기 전 바로 전 feature.
+            flow3: b 2 32 32
+            log_var_map3: b 2 32 32
+            weight_map3: b 2 32 32
+        '''
+
 
         up_flow3, up_log_var_map3, up_probability_map3, up_feat3 = self.upscaling(x3, flow3, log_var_map3,
                                                                                   weight_map3,
                                                                                   (h_original//8.0, w_original//8.0))
+        
+        '''
+            up_flow3: b 2 65 65     # 여기서는 또 deconv 쓰지 않고 F.interpolate 으로 두 배 키워주었넹 그래서 아래에 up_flow3 scale 맞춰줌
+            up_log_var_map3: b 2 65 65
+            up_probability_map3: b 2 65 65
+            up_feat3: None
+        '''
 
+        # breakpoint()
         # before the flow was scaled to h_256xw_256. Now, since we go to the high resolution images, we need
         # to scale the flow to h_original x w_original
         up_flow3[:, 0, :, :] *= float(w_original) / float(w_256)
         up_flow3[:, 1, :, :] *= float(h_original) / float(h_256)
-        if self.scale_low_resolution:
+        if self.scale_low_resolution:   # false
             # scale the variance from 256 to w_original or h_original
             # APPROXIMATION FOR NON-SQUARE IMAGES --> use the diagonal
             diag_original = math.sqrt(h_original ** 2 + w_original ** 2)
             diag_256 = math.sqrt(h_256 ** 2 + w_256 ** 2)
             up_log_var_map3 += 2 * math.log(diag_original / float(diag_256))
 
-        if self.estimate_one_mode:
+        if self.estimate_one_mode:  # false
             up_uncertainty_components3 = up_log_var_map3
         else:
             up_uncertainty_components3 = torch.cat((up_log_var_map3, up_probability_map3), 1)
@@ -613,10 +695,24 @@ class PDCNetModel(ProbabilisticGLU):
                                                                           sigma_max=self.var_2_plus,
                                                                           up_feat=up_feat3, div=1.0,
                                                                           refinement=self.params.refinement_at_all_levels)
+        
+        '''
+            x2: b 32 65 65
+            flow2: b 2 65 65
+            log_var_map2: b 2 65 65
+            weight_map2: b 2 65 65
+        '''
 
         up_flow2, up_log_var_map2, up_probability_map2, up_feat2 = self.upscaling(x2, flow2, log_var_map2, weight_map2,
                                                                                   (h_original//4.0, w_original//4.0),
                                                                                   self.deconv2, self.upfeat2)
+        '''
+            up_flow2: b 2 130 130   
+            up_log_var_map2: b 2 130 130
+            up_probability_map2: b 2 130 130
+            up_feat2: b 2 130 130
+        '''
+        
         if self.estimate_one_mode:
             up_uncertainty_components2 = up_log_var_map2
         else:
@@ -634,8 +730,16 @@ class PDCNetModel(ProbabilisticGLU):
                                                                           sigma_max=self.var_2_plus,
                                                                           up_feat=up_feat2, div=1.0,
                                                                           refinement=self.params.refinement_at_finest_level)
+    
+        '''
+            x1: b 32 130 130
+            flow1: b 2 130 130
+            log_var_map1: b 2 130 130
+            weight_map1: b 2 130 130
+        '''
 
-        if self.scale_low_resolution:
+        # breakpoint()
+        if self.scale_low_resolution:   # false
             # Here, we also want to scale the low resolution flows (flow4 and flow3) to the high resolution
             # original image sizes h_original x w_original
             # prepare output dict
@@ -669,13 +773,13 @@ class PDCNetModel(ProbabilisticGLU):
                 output = {'flow_estimates': [flow4, flow3, flow2, flow1],
                           'uncertainty_estimates': [[log_var_map4, weight_map4], [log_var_map3, weight_map3],
                                                     [log_var_map2, weight_map2], [log_var_map1, weight_map1]]}
-        else:
-            if self.estimate_one_mode:
+        else:   # true
+            if self.estimate_one_mode:  # false 
                 output_256 = {'flow_estimates': [flow4, flow3], 'correlation': corr4,
                               'uncertainty_estimates': [log_var_map4, log_var_map3]}
                 output = {'flow_estimates': [flow2, flow1],
                           'uncertainty_estimates': [log_var_map2, log_var_map1]}
-            else:
+            else:   # true
                 # correspond to the L-Net predictions
                 output_256 = {'flow_estimates': [flow4, flow3], 'correlation': corr4,
                               'uncertainty_estimates': [[log_var_map4, weight_map4], [log_var_map3, weight_map3]]}

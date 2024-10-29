@@ -13,3 +13,4 @@ output*/
 *build*
 *.jpg
 *.gif
+wandb/

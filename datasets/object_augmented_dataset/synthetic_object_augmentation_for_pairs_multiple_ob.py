@@ -13,6 +13,23 @@ from utils_flow.pixel_wise_mapping import remap_using_flow_fields
 from utils_flow.flow_and_mapping_operations import get_gt_correspondence_mask
 
 
+import sys
+import pdb
+
+class ForkedPdb(pdb.Pdb):
+    """
+    PDB Subclass for debugging multi-processed code
+    Suggested in: https://stackoverflow.com/questions/4716533/how-to-attach-debugger-to-a-python-subproccess
+    """
+    def interaction(self, *args, **kwargs):
+        _stdin = sys.stdin
+        try:
+            sys.stdin = open('/dev/stdin')
+            pdb.Pdb.interaction(self, *args, **kwargs)
+        finally:
+            sys.stdin = _stdin
+
+
 def from_homography_to_pixel_wise_mapping(shape, H):
     """
     From a homography relating target image to source image, computes pixel wise mapping and pixel wise displacement
@@ -402,6 +419,7 @@ class AugmentedImagePairsDatasetMultipleObjects(BaseVideoDataset):
             # final mask is mask_zero_border or the object if they cover some previously invalid regions
             mask_zero_borders = mask_zero_borders | mask_of_objects_in_target
 
+        # ForkedPdb().set_trace()
         # choose what the correspondence_mask represents
         if self.compute_occlusion_mask:
             correspondence_mask = ~occluded_mask

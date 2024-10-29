@@ -18,12 +18,13 @@ from datasets.object_augmented_dataset import MSCOCO, AugmentedImagePairsDataset
 from datasets.object_augmented_dataset.synthetic_object_augmentation_for_pairs_multiple_ob import RandomAffine
 
 
-def run(settings):
+def run(settings, args=None):
     settings.description = 'Default train settings for GLU-Net-GOCor on the dynamic dataset (from GOCor paper)'
     settings.data_mode = 'local'
-    settings.batch_size = 16
+    # settings.batch_size = 16
+    settings.batch_size = args.batch_size
     settings.n_threads = 8
-    settings.multi_gpu = True
+    settings.multi_gpu = False      # change for multi-gpu
     settings.print_interval = 500
     settings.lr = 0.0001
     settings.scheduler_steps = [100, 120, 130]

@@ -147,7 +147,7 @@ class TransformerAggregator(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-    def forward(self, attn_maps, source):
+    def forward(self, attn_maps, feat):
         B = attn_maps.shape[0]
         x = attn_maps.clone()
         
@@ -157,7 +157,7 @@ class TransformerAggregator(nn.Module):
         # x = torch.cat((x.transpose(-1, -2), target), dim=3) + pos_embed
         # x = self.proj(self.blocks(x)).transpose(-1, -2) + corr  # swapping the axis for swapping self-attention.
 
-        x = torch.cat((x, source), dim=3) + pos_embed
+        x = torch.cat((x, feat), dim=3) + pos_embed
         x = self.proj(self.blocks(x)) + attn_maps 
 
         return x.mean(1)
@@ -244,6 +244,7 @@ class CATs(nn.Module):
         self.uncertainty = getattr(args,'uncertainty',False)
         self.give_layer_before_flow_to_uncertainty_decoder = True
         self.conv4d = conv4d
+
 
         # true
         if self.args.cost_agg == 'hierarchical_cats' or self.args.cost_agg == 'hierarchical_residual_cats' or self.args.cost_agg == 'hierarchical_conv4d_cats' or self.args.cost_agg == 'hierarchical_conv4d_cats_level': #or self.args.cost_agg == 'hierarchical_conv4d_cats_level_4stage':
@@ -403,60 +404,53 @@ class CATs(nn.Module):
             large_log_var_map = torch.log(var_min / max_exp.exp() + torch.exp(large_log_var_map - max_exp)) + max_exp
         return large_log_var_map
 
-    def forward(self, attn_maps, tgt_feats, output_shape, feat_source, feat_target, attn_maps_source=None, src_feats=None, tgt_img = None, src_img = None):
+    def forward(self, attn_maps_tgt, decfeats_tgt, output_shape, encfeat_last_src, encfeat_last_tgt, attn_maps_src=None, decfeats_src=None, tgt_img = None, src_img = None):
         '''
-            feat_source and feat_target are last features of the encoder 
+            encfeat_last_src and encfeat_last_tgt are last features of the encoder 
         '''
-
-        # breakpoint()
         
-        B, _,_ = tgt_feats[0].size()
+        B, _,_ = decfeats_tgt[0].size()
 
         tgt_feats_proj, src_feats_proj = [],[]
         
-        if self.correlation:    # true
-            corr = self.corr(self.l2norm(feat_target.permute(0,2,1)),self.l2norm(feat_source.permute(0,2,1)))
-            attn_maps = [corr] + attn_maps  # attn_maps 앞쪽 리스트에 corr 추가
-            tgt_feats = [feat_target] + tgt_feats
+        if self.correlation:    # t/f
+            corr = self.corr(self.l2norm(encfeat_last_tgt.permute(0,2,1)),self.l2norm(encfeat_last_src.permute(0,2,1)))
+            attn_maps_tgt = [corr] + attn_maps_tgt  # attn_maps_tgt 앞쪽 리스트에 corr 추가
+            decfeats_tgt = [encfeat_last_tgt] + decfeats_tgt
             
             if self.reciprocity:
                 corr = corr.transpose(-1,-2)
-                attn_maps_source = [corr] + attn_maps_source
-                src_feats = [feat_source] + src_feats
+                attn_maps_src = [corr] + attn_maps_src
+                decfeats_src = [encfeat_last_src] + decfeats_src
         
+        # apply linear layer to decfeats of tgt and src. d=768->128
         for i in range(len(self.proj)):
-            B,L,C = tgt_feats[i].shape
+            B,L,C = decfeats_tgt[i].shape
             
-            tgt_feats[i] = self.ln[i](tgt_feats[i])     # layer normalize target feats
-            tgt_feats_proj.append(self.proj[i](tgt_feats[i]))   # channel dim 1024 -> 128 즉, b n 1024 -> b n 128
+            decfeats_tgt[i] = self.ln[i](decfeats_tgt[i])     # layer normalize target feats
+            tgt_feats_proj.append(self.proj[i](decfeats_tgt[i]))   # channel dim 1024 -> 128 즉, b n 1024 -> b n 128
             
-            if self.reciprocity:
-                src_feats[i] = self.ln_src[i](src_feats[i])
-                src_feats_proj.append(self.proj[i](src_feats[i]))
-         
-        tgt_feats = torch.stack(tgt_feats_proj, dim=1)
-        attn_maps = torch.stack(attn_maps, dim=1)
-        # attn_maps = self.mutual_nn_filter(attn_maps)
-        refined_corr = self.decoder(attn_maps, tgt_feats)
+            if self.reciprocity:    # true
+                decfeats_src[i] = self.ln_src[i](decfeats_src[i])
+                src_feats_proj.append(self.proj[i](decfeats_src[i]))
         
-        if self.args.reverse:   # false
-            src_feats = torch.stack(src_feats_proj, dim=1)
-            attn_maps_source = torch.stack(attn_maps_source, dim=1)
-            refined_corr_source = self.decoder(attn_maps_source, src_feats)
-            refined_corr_target = refined_corr
-            refined_corr = (refined_corr_source.transpose(-1,-2))
-        elif self.reciprocity:  # true
-            src_feats = torch.stack(src_feats_proj, dim=1)
-            attn_maps_source = torch.stack(attn_maps_source, dim=1)
-            refined_corr_source = self.decoder(attn_maps_source, src_feats)
-            refined_corr_target = refined_corr
-            refined_corr = (refined_corr + refined_corr_source.transpose(-1,-2)) / 2
+        # breakpoint()
+        decfeats_tgt = torch.stack(tgt_feats_proj, dim=1)
+        attn_maps_tgt = torch.stack(attn_maps_tgt, dim=1)
+        # attn_maps_tgt = self.mutual_nn_filter(attn_maps_tgt)
+        refined_corr = self.decoder(attn_maps_tgt, decfeats_tgt) # refined_corr_tgt  # b 196 196 (b HtWt HsWs)
+
+        if self.reciprocity:  # true
+            decfeats_src = torch.stack(src_feats_proj, dim=1)
+            attn_maps_src = torch.stack(attn_maps_src, dim=1)
+            refined_corr_src = self.decoder(attn_maps_src, decfeats_src)  # b 196 196 (b HsWs HtWt)
+            refined_corr = (refined_corr + refined_corr_src.transpose(-1,-2)) / 2    # b 196 196 (b HtWt HsWs)
             
         if self.uncertainty:    # false    
             uncertainty4 = self.estimate_uncertainty_components(self.corr_uncertainty_decoder4,
                                                                         self.uncertainty_decoder4,
                                                                         'corr',
-                                                                        attn_maps[:,0], None, None, refined_corr,
+                                                                        attn_maps_tgt[:,0], None, None, refined_corr,
                                                                         global_local='use_global_corr_layer')
             # large_log_var_map4 = self.constrain_large_log_var_map(torch.tensor(2.0), torch.tensor(0.0), large_log_var_map4)
             # small_log_var_map4 = torch.ones_like(large_log_var_map4, requires_grad=False) * torch.log(torch.tensor(1.0))
@@ -467,16 +461,15 @@ class CATs(nn.Module):
             
         
         if not self.cost_transformer:   # false
-            refined_corr = attn_maps.mean(dim=1) ## target source
-            # refined_corr = (attn_maps.mean(dim=1) + attn_maps_source.mean(dim=1).transpose(-1,-2))/2.
-            # refined_corr = self.corr(self.l2norm(feat_target.permute(0,2,1)),self.l2norm(feat_source.permute(0,2,1)))
+            refined_corr = attn_maps_tgt.mean(dim=1) ## target source
+            # refined_corr = (attn_maps_tgt.mean(dim=1) + attn_maps_src.mean(dim=1).transpose(-1,-2))/2.
+            # refined_corr = self.corr(self.l2norm(encfeat_last_tgt.permute(0,2,1)),self.l2norm(encfeat_last_src.permute(0,2,1)))
             
-
         grid_x, grid_y = self.soft_argmax(refined_corr.transpose(-1,-2).view(B, -1, self.feature_size, self.feature_size),beta=2e-2)
         self.grid_x = grid_x
         self.grid_y = grid_y
 
-        flow = torch.cat((grid_x, grid_y), dim=1)
+        flow = torch.cat((grid_x, grid_y), dim=1)   # b 2 14 14 
         flow = unnormalise_and_convert_mapping_to_flow(flow)
         h, w = flow.shape[-2:]
         if self.output_interp:  # false    
@@ -509,8 +502,8 @@ class CATs(nn.Module):
             PH, PW = output_shape[0]//16, output_shape[1]//16
             refined_corr = refined_corr.view(B,PH, PW, PH, PW).unsqueeze(dim=1)
             refined_corr = self.conv4d_seq(refined_corr)
-            bsz, ch, ha, wa, hb, wb = refined_corr.size()
-            refined_corr = refined_corr.view(bsz, ch, ha, wa, -1).mean(dim=-1)
+            b, c, Ht, Wt, Hs, Ws = refined_corr.size()
+            refined_corr = refined_corr.view(b, c, Ht, Wt, -1).mean(dim=-1)
             
             return flow, refined_corr
 

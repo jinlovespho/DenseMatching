@@ -340,8 +340,8 @@ class BaseGLUMultiScaleMatchingNet(BaseMultiScaleMatchingNet):
             corr4: global correlation B, h_s*w_s, h_t, w_t
         """
         b = c14.shape[0]
-        if 'GOCor' in self.params.global_corr_type:
-            if self.params.normalize_features:
+        if 'GOCor' in self.params.global_corr_type: # true
+            if self.params.normalize_features:  # true
                 corr4, losses4 = self.corr(self.l2norm(c14), self.l2norm(c24))
             else:
                 corr4, losses4 = self.corr(c14, c24)

@@ -17,14 +17,16 @@ from datasets.object_augmented_dataset import MSCOCO, AugmentedImagePairsDataset
 from datasets.object_augmented_dataset.synthetic_object_augmentation_for_pairs_multiple_ob import RandomAffine
 ## hg add
 from models.croco.croco_downstream import croco_args_from_ckpt, CroCoDownstreamBinocular
+from models.croco.croco import CroCoNet
 from models.croco.head_downstream import PixelwiseTaskWithDPT
 from models.croco.pos_embed import interpolate_pos_embed
 
 
-def run(settings):
+def run(settings, args=None):
     settings.description = 'Default train settings for GLU-Net on the dynamic dataset (from GOCor paper)'
     settings.data_mode = 'local'
-    settings.batch_size = 2
+    # settings.batch_size = 2
+    settings.batch_size = args.batch_size
     settings.n_threads = 8
     settings.multi_gpu = True
     settings.print_interval = 500
@@ -94,9 +96,11 @@ def run(settings):
     ckpt = torch.load(settings.env.croco_pretrained_path,'cpu')
     croco_args = croco_args_from_ckpt(ckpt)
     croco_args['img_size'] = ((520//32)*32,(520//32)*32)
+    croco_args['args'] = args
     head = PixelwiseTaskWithDPT()
     head.num_channels = 2
-    model = CroCoDownstreamBinocular(head, **croco_args)
+    # model = CroCoDownstreamBinocular(head, **croco_args)
+    model = CroCoNet(**croco_args)
     # interpolate_pos_embed(network,ckpt['model'])
     model.load_state_dict(ckpt['model'], strict=False)
 

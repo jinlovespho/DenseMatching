@@ -33,13 +33,14 @@ class VGGPyramid(nn.Module):
         self.__dict__['_modules'] = modules
 
     def forward(self, x, quarter_resolution_only=False, eigth_resolution=False):
+        # breakpoint()
         outputs = []
-        if quarter_resolution_only:
+        if quarter_resolution_only: # false
             x_full = self.__dict__['_modules']['level_' + str(0)](x)
             x_half = self.__dict__['_modules']['level_' + str(1)](x_full)
             x_quarter = self.__dict__['_modules']['level_' + str(2)](x_half)
             outputs.append(x_quarter)
-        elif eigth_resolution:
+        elif eigth_resolution:  # true
             x_full = self.__dict__['_modules']['level_' + str(0)](x)
             outputs.append(x_full)
             x_half = self.__dict__['_modules']['level_' + str(1)](x_full)

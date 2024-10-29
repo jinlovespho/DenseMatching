@@ -21,12 +21,13 @@ from admin.loading import partial_load
 
 
 
-def run(settings):
+def run(settings, args=None):
     settings.description = 'Default train settings for PDCNet+ stage 1'
     settings.data_mode = 'local'
-    settings.batch_size = 14
+    # settings.batch_size = 14
+    settings.batch_size = args.batch_size
     settings.n_threads = 8
-    settings.multi_gpu = True
+    settings.multi_gpu = args.multi_gpu
     settings.print_interval = 500
     settings.lr = 0.0001
     settings.scheduler_steps = [50, 90]
@@ -161,7 +162,7 @@ def run(settings):
 
     # 8. Define trainer
     trainer = MatchingTrainer(glunet_actor, [train_loader, val_loader], optimizer, settings, lr_scheduler=scheduler,
-                              make_initial_validation=False)
+                              make_initial_validation=False, args=args)
 
     trainer.train(settings.n_epochs, load_latest=True, fail_safe=True)
 

@@ -25,6 +25,9 @@ from .hierarchical_cats import HierarchicalCATs
 from models.croco.head_downstream import PixelwiseTaskWithDPT
 import torch.nn.functional as F
 
+# jinlovespho
+from copy import deepcopy
+
 
 
 class CroCoNet(nn.Module):
@@ -96,7 +99,10 @@ class CroCoNet(nn.Module):
             
             dim_tokens_enc = 768
             self.hierarchical_cats = HierarchicalCATs(dim_tokens_enc = dim_tokens_enc, hooks = [0,1,2,3], args=args, conv4d_feature = 128, depth=args.cats_depth)
-            
+        
+        # JLP
+        elif self.cost_agg == 'try1_cats_attnmap_with_encfeat':
+            self.cats = CATs(feature_size=(img_size[0]//16), hyperpixel_ids = [i for i in range(0, 4)], output_interp=False, cost_transformer=self.cost_transformer, args=args,depth=4, conv4d=True)
             
         elif self.cost_agg == 'croco_flow':
             self.head = PixelwiseTaskWithDPT()
@@ -171,6 +177,9 @@ class CroCoNet(nn.Module):
             for i in range(dec_depth)])
         # final norm layer 
         self.dec_norm = norm_layer(dec_embed_dim)
+
+        # jinlovespho
+        self.dec_blocks2 = deepcopy(self.dec_blocks)
         
     def _set_prediction_head(self, dec_embed_dim, patch_size):
          self.prediction_head = nn.Linear(dec_embed_dim, patch_size**2 * 3, bias=True)
@@ -274,6 +283,50 @@ class CroCoNet(nn.Module):
             return out, attn_maps
         return out, None
 
+    def _decoder2(self, feat1, pos1, masks1, feat2, pos2, return_all_blocks=False):
+        """
+        return_all_blocks: if True, return the features at the end of every block 
+                           instead of just the features from the last block (eg for some prediction heads)
+                           
+        masks1 can be None => assume image1 fully visible 
+        """
+        # encoder to decoder layer 
+        visf1 = self.decoder_embed(feat1)
+        f2 = self.decoder_embed(feat2)
+        # append masked tokens to the sequence
+        B,Nenc,C = visf1.size()
+        if masks1 is None: # downstreams
+            f1_ = visf1
+        else: # pretraining 
+            Ntotal = masks1.size(1)
+            f1_ = self.mask_token.repeat(B, Ntotal, 1).to(dtype=visf1.dtype)
+            f1_[~masks1] = visf1.view(B * Nenc, C)
+        # add positional embedding
+        if self.dec_pos_embed is not None:
+            f1_ = f1_ + self.dec_pos_embed
+            f2 = f2 + self.dec_pos_embed
+        # apply Transformer blocks
+        out = f1_
+        out2 = f2 
+        attn_maps = []
+        if return_all_blocks:
+            _out, out = out, []
+            for blk in self.dec_blocks2:
+                _out, out2, attn_map = blk(_out, out2, pos1, pos2)
+                out.append(_out)
+                attn_maps.append(attn_map)
+            out[-1] = self.dec_norm(out[-1])
+        else:
+            for blk in self.dec_blocks2:
+                out, out2, attn_map = blk(out, out2, pos1, pos2)
+                attn_maps.append(attn_map)
+            out = self.dec_norm(out)
+            
+        if self.attn_map_output:
+            return out, attn_maps
+        return out, None
+
+
     def patchify(self, imgs):
         """
         imgs: (B, 3, H, W)
@@ -356,55 +409,57 @@ class CroCoNet(nn.Module):
         out will be    B x N x (3*patch_size*patch_size)
         masks are also returned as B x N just in case 
         """
+
         B,_,H,W = img_target.size()
         feat_targets, pos_target, mask_target = self._encode_image(img_target, do_mask=False, return_all_blocks=True)
         feat_sources, pos_source, mask_source = self._encode_image(img_source, do_mask=False, return_all_blocks=True)
 
-        feat_target = feat_targets[-1]  #  last enc feature from target
-        feat_source = feat_sources[-1]  #  last enc feature from source
+        encfeat_last_tgt = feat_targets[-1]  #  last enc feature from target
+        encfeat_last_src = feat_sources[-1]  #  last enc feature from source
 
         # decoder
-        decfeat_tgt, attn_map = self._decoder(feat_target, pos_target, mask_target, feat_source, pos_source, return_all_blocks=True)
+        decfeat_tgt, attn_map_tgt = self._decoder(encfeat_last_tgt, pos_target, mask_target, encfeat_last_src, pos_source, return_all_blocks=True)
         if self.reciprocity:    # true
-            decfeat_src, attn_map_source = self._decoder(feat_source, pos_source, mask_source, feat_target, pos_target, return_all_blocks=True)
+            decfeat_src, attn_map_src = self._decoder(encfeat_last_src, pos_source, mask_source, encfeat_last_tgt, pos_target, return_all_blocks=True)
         
         ## heuristic attention refine
-        attn_map = [attn.mean(dim=1).detach() for attn in attn_map]
-        for i in range(len(attn_map)):
-            attn_map[i][:,:,0]=attn_map[i].min()
-        self.attn_map = attn_map
+        attn_map_tgt = [attn.mean(dim=1).detach() for attn in attn_map_tgt]
+        for i in range(len(attn_map_tgt)):
+            attn_map_tgt[i][:,:,0]=attn_map_tgt[i].min()
+        self.attn_map_tgt = attn_map_tgt
         if self.reciprocity:    # true
-            attn_map_source = [attn.mean(dim=1).detach() for attn in attn_map_source]
-            for i in range(len(attn_map_source)):
-                attn_map_source[i][:,:,0]=attn_map_source[i].min()    
-            
+            attn_map_src = [attn.mean(dim=1).detach() for attn in attn_map_src]
+            for i in range(len(attn_map_src)):
+                attn_map_src[i][:,:,0]=attn_map_src[i].min()    
+
+        # breakpoint()
         if self.cost_agg == 'cats':
             decfeat_tgt = [feat.detach() for feat in decfeat_tgt]
             if self.reciprocity:
                 decfeat_src = [feat.detach() for feat in decfeat_src]
                 
                 if self.occlusion_mask:
-                    out, out_target, out_source = self.cats(attn_map, decfeat_tgt, (H,W), feat_source, feat_target, attn_map_source, decfeat_src, img_target, img_source)
+                    out, out_target, out_source = self.cats(attn_map_tgt, decfeat_tgt, (H,W), encfeat_last_src, encfeat_last_tgt, attn_map_src, decfeat_src, img_target, img_source)
                     return out,out_target,out_source
                 
-                out = self.cats(attn_map, decfeat_tgt, (H,W), feat_source, feat_target, attn_map_source, decfeat_src, img_target, img_source)
+                out = self.cats(attn_map_tgt, decfeat_tgt, (H,W), encfeat_last_src, encfeat_last_tgt, attn_map_src, decfeat_src, img_target, img_source)
                 
             else:
-                out = self.cats(attn_map, decfeat_tgt, (H,W), feat_source, feat_target)
+                out = self.cats(attn_map_tgt, decfeat_tgt, (H,W), encfeat_last_src, encfeat_last_tgt)
             
             return out
         
         elif self.cost_agg == 'hierarchical_cats' or self.cost_agg == 'hierarchical_residual_cats': # true
             assert self.reciprocity, "reciprocity must be True for hierarchical_cats"
             
-            breakpoint()
+            # breakpoint()
             # get all 24 layer (vit_large) encoder features 
             encfeat_targets = [feat for feat in feat_targets]   # 24 of b 196 1024
             encfeat_sources = [feat for feat in feat_sources]   
             
-            aggregates_flow1 = self.cats4(attn_map[0:4], encfeat_targets[0:8:2], (H,W), feat_source, feat_target, attn_map_source[0:4], encfeat_sources[0:8:2]) # b 2 14 14 
-            aggregates_flow2 = self.cats3(attn_map[4:8], encfeat_targets[8:16:2], (H,W), feat_source, feat_target, attn_map_source[4:8], encfeat_sources[8:16:2]) # b 2 14 14
-            aggregates_flow3 = self.cats2(attn_map[8:12], encfeat_targets[16:24:2], (H,W), feat_source, feat_target, attn_map_source[8:12], encfeat_sources[16:24:2]) # b 2 14 14
+            aggregates_flow1 = self.cats4(attn_map_tgt[0:4], encfeat_targets[0:8:2], (H,W), encfeat_last_src, encfeat_last_tgt, attn_map_src[0:4], encfeat_sources[0:8:2]) # b 2 14 14 
+            aggregates_flow2 = self.cats3(attn_map_tgt[4:8], encfeat_targets[8:16:2], (H,W), encfeat_last_src, encfeat_last_tgt, attn_map_src[4:8], encfeat_sources[8:16:2]) # b 2 14 14
+            aggregates_flow3 = self.cats2(attn_map_tgt[8:12], encfeat_targets[16:24:2], (H,W), encfeat_last_src, encfeat_last_tgt, attn_map_src[8:12], encfeat_sources[16:24:2]) # b 2 14 14
             
             aggregates_flows = [aggregates_flow1, aggregates_flow2, aggregates_flow3]
             enc_feats = [decfeat_tgt[3], decfeat_tgt[7], decfeat_tgt[11]]
@@ -418,9 +473,9 @@ class CroCoNet(nn.Module):
             encfeat_targets = [feat.detach() for feat in feat_targets]
             encfeat_sources = [feat.detach() for feat in feat_sources]
                         
-            aggregates_flow1, conv4d_feature1 = self.cats4(attn_map[0:4], encfeat_targets[0:8:2], (H,W), feat_source, feat_target, attn_map_source[0:4], encfeat_sources[0:4])
-            aggregates_flow2, conv4d_feature2 = self.cats3(attn_map[4:8], encfeat_targets[8:16:2], (H,W), feat_source, feat_target, attn_map_source[4:8], encfeat_sources[4:8])
-            aggregates_flow3, conv4d_feature3 = self.cats2(attn_map[8:12], encfeat_targets[16:24:2], (H,W), feat_source, feat_target, attn_map_source[8:12], encfeat_sources[8:12])            
+            aggregates_flow1, conv4d_feature1 = self.cats4(attn_map_tgt[0:4], encfeat_targets[0:8:2], (H,W), encfeat_last_src, encfeat_last_tgt, attn_map_src[0:4], encfeat_sources[0:8:2])
+            aggregates_flow2, conv4d_feature2 = self.cats3(attn_map_tgt[4:8], encfeat_targets[8:16:2], (H,W), encfeat_last_src, encfeat_last_tgt, attn_map_src[4:8], encfeat_sources[8:16:2])
+            aggregates_flow3, conv4d_feature3 = self.cats2(attn_map_tgt[8:12], encfeat_targets[16:24:2], (H,W), encfeat_last_src, encfeat_last_tgt, attn_map_src[8:12], encfeat_sources[16:24:2])            
             
             aggregates_flows = [conv4d_feature1, conv4d_feature2, conv4d_feature3]
             enc_feats = [decfeat_tgt[3], decfeat_tgt[7], decfeat_tgt[11]]
@@ -431,22 +486,24 @@ class CroCoNet(nn.Module):
         
         elif self.cost_agg == 'hierarchical_conv4d_cats_level_4stage':
             assert self.reciprocity, "reciprocity must be True for hierarchical_cats"
-            encfeat_targets = [feat.detach() for feat in feat_targets]
+            encfeat_targets = [feat.detach() for feat in feat_targets]  
             encfeat_sources = [feat.detach() for feat in feat_sources]
                         
-            # aggregates_flow1, conv4d_feature1 = self.cats4(attn_map[0:3], encfeat_targets[0:6:2], (H,W), feat_source, feat_target, attn_map_source[0:3], encfeat_sources[0:6:2])
-            # aggregates_flow2, conv4d_feature2 = self.cats3(attn_map[3:6], encfeat_targets[6:12:2], (H,W), feat_source, feat_target, attn_map_source[3:6], encfeat_sources[6:12:2])
-            # aggregates_flow3, conv4d_feature3 = self.cats2(attn_map[6:9], encfeat_targets[12:18:2], (H,W), feat_source, feat_target, attn_map_source[6:9], encfeat_sources[12:18:2])            
-            # aggregates_flow4, conv4d_feature4 = self.cats1(attn_map[9:12], encfeat_targets[18:24:2], (H,W), feat_source, feat_target, attn_map_source[9:12], encfeat_sources[18:24:2])            
+            # aggregates_flow1, conv4d_feature1 = self.cats4(attn_map_tgt[0:3], encfeat_targets[0:6:2], (H,W), encfeat_last_src, encfeat_last_tgt, attn_map_src[0:3], encfeat_sources[0:6:2])
+            # aggregates_flow2, conv4d_feature2 = self.cats3(attn_map_tgt[3:6], encfeat_targets[6:12:2], (H,W), encfeat_last_src, encfeat_last_tgt, attn_map_src[3:6], encfeat_sources[6:12:2])
+            # aggregates_flow3, conv4d_feature3 = self.cats2(attn_map_tgt[6:9], encfeat_targets[12:18:2], (H,W), encfeat_last_src, encfeat_last_tgt, attn_map_src[6:9], encfeat_sources[12:18:2])            
+            # aggregates_flow4, conv4d_feature4 = self.cats1(attn_map_tgt[9:12], encfeat_targets[18:24:2], (H,W), encfeat_last_src, encfeat_last_tgt, attn_map_src[9:12], encfeat_sources[18:24:2])            
             
-            aggregates_flow, conv4d_feature = self.cats(attn_map, decfeat_tgt, (H,W), feat_source, feat_target, attn_map_source, decfeat_src)
+            # decoder features (tgt and src)
+            # encoder last features (tgt and src)
+            # attn maps are inputted to CATS
+            refined_flow, refined_cv = self.cats(attn_map_tgt, decfeat_tgt, (H,W), encfeat_last_src, encfeat_last_tgt, attn_map_src, decfeat_src)
+
+            refined_cost_volume = [refined_cv]
+            dpt_input_feats = [decfeat_tgt[2], decfeat_tgt[5], decfeat_tgt[8], decfeat_tgt[11]]
             
-            
-            aggregates_flows = [conv4d_feature]
-            enc_feats = [decfeat_tgt[2], decfeat_tgt[5], decfeat_tgt[8], decfeat_tgt[11]]
-            
-            outputs = self.hierarchical_cats(enc_feats,aggregates_flows, (H,W))
-            outputs = outputs + [aggregates_flow]
+            outputs = self.hierarchical_cats(dpt_input_feats, refined_cost_volume, (H,W))
+            outputs = outputs + [refined_flow]
             
             if self.output_interp:
                 for i in range(len(outputs)):
@@ -457,8 +514,27 @@ class CroCoNet(nn.Module):
                                 
             return outputs
         
+        elif self.cost_agg == 'try1_cats_attnmap_with_encfeat':
+            idx1 = [1,4,7,11]   # dec attnmap sample idx
+            # idx1 -1           # dec feat sample idx
+
+            # append 4 dec_attnmaps and 4 dec_feats from tgt and src
+            refined_flow, refined_cv = self.cats(attn_maps_tgt=[ attn_map_tgt[idx1[0]], attn_map_tgt[idx1[1]], attn_map_tgt[idx1[2]], attn_map_tgt[idx1[3]], ],
+                                                 decfeats_tgt=[ decfeat_tgt[idx1[0]-1], decfeat_tgt[idx1[1]-1], decfeat_tgt[idx1[2]-1], decfeat_tgt[idx1[3]-1], ],
+                                                 output_shape=(H,W),
+                                                 encfeat_last_src=encfeat_last_src,
+                                                 encfeat_last_tgt=encfeat_last_tgt,
+                                                 attn_maps_src=[ attn_map_src[idx1[0]], attn_map_src[idx1[1]], attn_map_src[idx1[2]], attn_map_src[idx1[3]], ],
+                                                 decfeats_src=[  decfeat_src[idx1[0]-1], decfeat_src[idx1[1]-1], decfeat_src[idx1[2]-1], decfeat_src[idx1[3]-1], ],
+                                                 )
+
+        elif self.cost_agg == 'try2_cats_attnmap_with_decfeat':
+            pass
+
+            breakpoint()
+        
         elif self.cost_agg == 'CRAFT':
-            out = self.craft(decfeat_tgt, (H,W), attn_map)
+            out = self.craft(decfeat_tgt, (H,W), attn_map_tgt)
             # out[-1] = rearrange(out[-1].transpose(-2,-1)+self.craft.tmp, 'b (sh sw) (th tw) -> b sh sw th tw', sh=14, sw=14, th=14, tw=14) 
             if self.hierarchical:
                 predicted_flow = []
@@ -482,7 +558,7 @@ class CroCoNet(nn.Module):
             
 
             if self.reciprocity:
-                out = self.craft(decfeat_src, (H,W), attn_map_source)
+                out = self.craft(decfeat_src, (H,W), attn_map_src)
                 # out[-1] = rearrange(out[-1].transpose(-2,-1)+self.craft.tmp, 'b (sh sw) (th tw) -> b sh sw th tw', sh=14, sw=14, th=14, tw=14) 
                 out[-1] = rearrange(out[-1], 'b (sh sw) th tw -> b th tw sh sw', sh=14, sw=14) 
                 

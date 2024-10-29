@@ -483,7 +483,9 @@ class HierarchicalCATs(nn.Module):
         x = torch.cat(x, dim=-1)
         return x
 
-    def forward(self, encoder_tokens: List[torch.Tensor], coarse_flows, image_size):
+    def forward(self, encoder_tokens: List[torch.Tensor], coarse_cv, image_size):
+        
+        # breakpoint()
             #input_info: Dict):
         assert self.dim_tokens_enc is not None, 'Need to call init(dim_tokens_enc) function first'
         H, W = image_size
@@ -495,8 +497,8 @@ class HierarchicalCATs(nn.Module):
         # Hook decoder onto 4 layers from specified ViT layers
         layers = [encoder_tokens[hook] for hook in self.hooks]
         
-        if not self.args.cost_agg == 'hierarchical_conv4d_cats_level_4stage':
-            coarse_flows = [coarse_flows[hook] for hook in self.hooks]
+        if not self.args.cost_agg == 'hierarchical_conv4d_cats_level_4stage':   # false
+            coarse_cv = [coarse_cv[hook] for hook in self.hooks]
 
         # Extract only task-relevant tokens and ignore global tokens.
         layers = [self.adapt_tokens(l) for l in layers]
@@ -505,7 +507,7 @@ class HierarchicalCATs(nn.Module):
             # Reshape tokens to spatial representation
             layers = [rearrange(l, 'b (nh nw) c -> b c nh nw', nh=N_H, nw=N_W) for l in layers]
 
-            layers = [self.act_postprocess[idx](torch.cat((l,c),dim=1)) for idx, (l,c) in enumerate(zip(layers, coarse_flows))]
+            layers = [self.act_postprocess[idx](torch.cat((l,c),dim=1)) for idx, (l,c) in enumerate(zip(layers, coarse_cv))]
             # Project layers to chosen feature dim
             layers = [self.scratch.layer_rn[idx](l) for idx, l in enumerate(layers)]
 
@@ -527,7 +529,7 @@ class HierarchicalCATs(nn.Module):
         elif self.args.cost_agg == 'hierarchical_conv4d_cats':
             # Reshape tokens to spatial representation
             layers = [rearrange(l, 'b (nh nw) c -> b c nh nw', nh=N_H, nw=N_W) for l in layers]
-            coarse_flow = torch.cat((coarse_flows[0], coarse_flows[1], coarse_flows[2]),dim=1)
+            coarse_flow = torch.cat((coarse_cv[0], coarse_cv[1], coarse_cv[2]),dim=1)
             layers[-1] = torch.cat([layers[-1], coarse_flow], dim=1)
             layers = [self.act_postprocess[idx+1](l) for idx, l in enumerate(layers)]
             # Project layers to chosen feature dim
@@ -550,7 +552,7 @@ class HierarchicalCATs(nn.Module):
         elif self.args.cost_agg == 'hierarchical_conv4d_cats_level':
             # Reshape tokens to spatial representation
             layers = [rearrange(l, 'b (nh nw) c -> b c nh nw', nh=N_H, nw=N_W) for l in layers]
-            layers = [self.act_postprocess[idx+1](torch.cat((l,c),dim=1)) for idx, (l,c) in enumerate(zip(layers, coarse_flows))]
+            layers = [self.act_postprocess[idx+1](torch.cat((l,c),dim=1)) for idx, (l,c) in enumerate(zip(layers, coarse_cv))]
             # Project layers to chosen feature dim
             layers = [self.scratch.layer_rn[idx+1](l) for idx, l in enumerate(layers)]
 
@@ -571,7 +573,7 @@ class HierarchicalCATs(nn.Module):
         elif self.args.cost_agg == 'hierarchical_conv4d_cats_level_4stage':
             # Reshape tokens to spatial representation
             layers = [rearrange(l, 'b (nh nw) c -> b c nh nw', nh=N_H, nw=N_W) for l in layers]
-            coarse_flow = coarse_flows[0]
+            coarse_flow = coarse_cv[0]
             layers[-1] = torch.cat([layers[-1], coarse_flow], dim=1)
             layers = [self.act_postprocess[idx](l) for idx, l in enumerate(layers)]
             # Project layers to chosen feature dim
@@ -597,16 +599,16 @@ class HierarchicalCATs(nn.Module):
         else:
             layers = [rearrange(l, 'b (nh nw) c -> b c nh nw', nh=N_H, nw=N_W) for l in layers]
 
-            layers2 = torch.cat([layers[2], coarse_flows[2]], dim=1)
+            layers2 = torch.cat([layers[2], coarse_cv[2]], dim=1)
             layers2 = self.act_postprocess[3](layers2)
             layers2 = self.scratch.layer_rn[3](layers2)
             path_2 = self.scratch.refinenet4(layers2)
             out2 = self.head4(path_2)
             
-            coarse_flow2 = F.interpolate(coarse_flows[2], size=(out2.shape[2], out2.shape[3]), mode='bilinear')
+            coarse_flow2 = F.interpolate(coarse_cv[2], size=(out2.shape[2], out2.shape[3]), mode='bilinear')
             flow2 = coarse_flow2 + out2
             
-            layers1 = torch.cat([layers[1], coarse_flows[1]], dim=1)
+            layers1 = torch.cat([layers[1], coarse_cv[1]], dim=1)
             layers1 = self.act_postprocess[2](layers1)
             layers1 = torch.cat([layers1,flow2], dim=1)
             layers1 = self.scratch.layer_rn[2](layers1)
@@ -616,7 +618,7 @@ class HierarchicalCATs(nn.Module):
             coarse_flow1 = F.interpolate(flow2, size=(out1.shape[2], out1.shape[3]), mode='bilinear')
             flow1 = coarse_flow1 + out1
             
-            layers0 = torch.cat([layers[0], coarse_flows[0]], dim=1)
+            layers0 = torch.cat([layers[0], coarse_cv[0]], dim=1)
             layers0 = self.act_postprocess[1](layers0)
             layers0 = torch.cat([layers0,flow1], dim=1)
             layers0 = self.scratch.layer_rn[1](layers0)
@@ -625,9 +627,6 @@ class HierarchicalCATs(nn.Module):
             
             coarse_flow0 = F.interpolate(flow1, size=(out0.shape[2], out0.shape[3]), mode='bilinear')
             flow0 = coarse_flow0 + out0
-            
-            
-            
             
             # path_3 = self.scratch.refinenet3(path_4, layers[-2])
             # path_2 = self.scratch.refinenet2(path_3, layers[-3])

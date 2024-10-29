@@ -11,6 +11,9 @@ from datetime import date
 
 import admin.settings as ws_settings
 
+# JLP
+import wandb
+
 
 def run_training(train_module, train_name, seed, cudnn_benchmark=True,tag=None, args=None):
     """Run a train scripts in train_settings.
@@ -19,7 +22,7 @@ def run_training(train_module, train_name, seed, cudnn_benchmark=True,tag=None, 
         train_name: Name of the train settings file.
         cudnn_benchmark: Use cudnn benchmark or not (default is True).
     """
-
+    
     # This is needed to avoid strange crashes related to opencv
     cv.setNumThreads(0)
 
@@ -29,6 +32,7 @@ def run_training(train_module, train_name, seed, cudnn_benchmark=True,tag=None, 
     today = date.today()
     d1 = today.strftime("%d/%m/%Y")
     print('Training:  {}  {}\nDate: {}'.format(train_module, train_name, d1))
+    print('Tag: ', tag)
 
     settings = ws_settings.Settings()
     settings.module_name = train_module
@@ -55,7 +59,7 @@ def main():
     parser = argparse.ArgumentParser(description='Run a train scripts in train_settings.')
     parser.add_argument('train_module', type=str, help='Name of module in the "train_settings/" folder.')
     parser.add_argument('train_name', type=str, help='Name of the train settings file.')
-    parser.add_argument('--tag', type=str, help='Tag for the experiment.', default='first')
+    parser.add_argument('--tag', type=str, help='Tag for the experiment.', default='no_tag_assigned')
     parser.add_argument('--cudnn_benchmark', type=bool, default=True,
                         help='Set cudnn benchmark on (1) or off (0) (default is on).')
     parser.add_argument('--seed', type=int, default=1992, help='Pseudo-RNG seed')
@@ -63,7 +67,7 @@ def main():
     parser.add_argument('--correlation', action='store_true', help='Correlation')
     parser.add_argument('--reciprocity', action='store_true', help='Reciprocity')
     parser.add_argument('--softmaxattn', action='store_true', help= 'Get attention map after softmax')
-    parser.add_argument('--cost_agg', type=str, help='Cost aggregation', default='cats', choices=['cats','CRAFT','hierarchical_cats', 'hierarchical_residual_cats','hierarchical_conv4d_cats','croco_flow', 'hierarchical_conv4d_cats_level','hierarchical_conv4d_cats_level_4stage',None])
+    parser.add_argument('--cost_agg', type=str, help='Cost aggregation', default='cats')
     parser.add_argument('--cost_transformer', action='store_true', help='Cost transformer')
     parser.add_argument('--hierarchical', action='store_true', help='Hierarchical')
     parser.add_argument("--occlusion_mask", action='store_true', help='Occlusion mask')
@@ -75,7 +79,15 @@ def main():
     parser.add_argument("--pretrain_cats", type=str, default=None)
     parser.add_argument('--cats_depth', type=int, default=4)
     parser.add_argument('--load_latest', action='store_true', help='Load latest checkpoint')
-        
+    parser.add_argument('--img_size', nargs='+', type=int )
+    parser.add_argument('--log_tool', type=str, default=None)
+    parser.add_argument('--wandb_proj_name', type=str, default=None)
+    # parser.add_argument('--wandb_exp_name', type=str, default=None)
+    parser.add_argument('--wandb_path', type=str, default=None)
+    parser.add_argument('--eval_ds', type=str, default=None)
+    parser.add_argument('--multi_gpu', action='store_true', help='Multi GPU')
+
+
     args = parser.parse_args()
 
     args.seed = torch.initial_seed() & (2 ** 32 - 1)
@@ -84,6 +96,13 @@ def main():
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
+    
+    # wandb
+    if args.log_tool == 'wandb':
+        wandb.init( project = args.wandb_proj_name,
+                    name = args.tag,
+                    config = args,
+                    dir=args.wandb_path)
 
     run_training(args.train_module, args.train_name, cudnn_benchmark=args.cudnn_benchmark, seed=args.seed,tag=args.tag, args=args)
 

@@ -10,6 +10,11 @@ from training.plot.plot_GLOCALNet import plot_basenet_during_training
 from training.plot. plot_sparse_keypoints import plot_sparse_keypoints
 from training.plot.plot_GLUNet import plot_during_training_with_uncertainty, plot_sparse_keypoints_GLUNet
 from utils_flow.util_optical_flow import flow_to_image
+from utils_flow.pixel_wise_mapping import warp 
+
+# JLP
+from torchvision.utils import save_image
+import wandb
 
 
 def resize_image(image, factor=32):
@@ -119,7 +124,7 @@ class GLUNetBasedActor(BaseActor):
         self.nbr_images_to_plot = nbr_images_to_plot
         self.best_val_epe = best_val_epe
 
-    def __call__(self, mini_batch, training):
+    def __call__(self, mini_batch, training, log_tool):
         """
         args:
             mini_batch: The mini batch input data, should at least contain the fields 'source_image', 'target_image',
@@ -136,14 +141,27 @@ class GLUNetBasedActor(BaseActor):
         """
         epoch = mini_batch['epoch']
         iter = mini_batch['iter']
-
         # Run network
         mini_batch = self.batch_processing(mini_batch)  # also put to GPU there
+        '''
+            for pdcnet_plus, previous mini_batch['correspondence_mask'] now have masks for the moving objects as well.
+            and mini_batch['mask'] is the same as mini_batch['correspondence_mask'].
+        '''
+        # # vis images 
+        # save_image(mini_batch['source_image'].float(), './vis_imgs/pdcnet_plus/img_src.jpg', normalize=True)
+        # save_image(mini_batch['target_image'].float(), './vis_imgs/pdcnet_plus/img_tgt.jpg', normalize=True)
+        # save_image(mini_batch['correspondence_mask'].unsqueeze(1).float(), './vis_imgs/pdcnet_plus/img_corr_msk.jpg', normalize=True)
+        # img_warped = warp(mini_batch['source_image'].float(), mini_batch['flow_map'])
+        # save_image(img_warped, './vis_imgs/pdcnet_plus/img_warped_to_tgt.jpg', normalize=True)
+        # save_image(mini_batch['mask'].unsqueeze(1).float(), './vis_imgs/pdcnet_plus/img_mask.jpg', normalize=True)
+
+        # breakpoint()
         output_net_256, output_net_original = self.net(mini_batch['target_image'], mini_batch['source_image'],
                                                        mini_batch['target_image_256'], mini_batch['source_image_256'])
-
-        loss_o, stats_o = self.objective(output_net_original, mini_batch['flow_map'], mask=mini_batch['mask'])
-        loss_256, stats_256 = self.objective_256(output_net_256, mini_batch['flow_map_256'], mask=mini_batch['mask_256'])
+        # breakpoint()
+        # calculate loss TWICE for the two resolutions!! (orig and 256)
+        loss_o, stats_o = self.objective(output_net_original, mini_batch['flow_map'], mask=mini_batch['mask'])  # smaller loss weights for original
+        loss_256, stats_256 = self.objective_256(output_net_256, mini_batch['flow_map_256'], mask=mini_batch['mask_256'])   # bigger loss weights for 256
         loss = loss_o + loss_256
 
         # import ipdb;ipdb.set_trace()
@@ -188,7 +206,7 @@ class GLUNetBasedActor(BaseActor):
             if not os.path.isdir(base_save_dir):
                 os.makedirs(base_save_dir)
 
-            if mini_batch['sparse'][0]:
+            if mini_batch['sparse'][0]: # false
                 _ = plot_sparse_keypoints_GLUNet(base_save_dir, epoch, iter,
                                                  mini_batch['source_image'], mini_batch['target_image'],
                                                  mini_batch['source_image_256'], mini_batch['target_image_256'],
@@ -200,7 +218,7 @@ class GLUNetBasedActor(BaseActor):
                                                      -1] if 'uncertainty_estimates' in list(output_net_original.keys()) else None,
                                                  uncertainty_info_256=output_net_256['uncertainty_estimates'][-1]
                                                  if 'uncertainty_estimates' in list(output_net_original.keys()) else None)
-            else:
+            else:   # true
                 _ = plot_during_training_with_uncertainty(base_save_dir, epoch, iter,
                                                           mini_batch['source_image'], mini_batch['target_image'],
                                                           mini_batch['source_image_256'],
@@ -215,6 +233,9 @@ class GLUNetBasedActor(BaseActor):
                                                           uncertainty_info_256=output_net_256['uncertainty_estimates'][-1]
                                                           if 'uncertainty_estimates' in list(output_net_original.keys()) else None)
 
+        if log_tool == 'wandb':
+            wandb.log(stats)
+            
         return loss, stats
 
 
@@ -240,7 +261,7 @@ class CrocoBasedActor(BaseActor):
         self.cost_agg = cost_agg
         
 
-    def __call__(self, mini_batch, training):
+    def __call__(self, mini_batch, training, log_tool):
         """
         args:
             mini_batch: The mini batch input data, should at least contain the fields 'source_image', 'target_image',
@@ -259,11 +280,16 @@ class CrocoBasedActor(BaseActor):
         epoch = mini_batch['epoch']
         iter = mini_batch['iter']
 
+        # # vis images 
+        # save_image(mini_batch['source_image'].float(), './vis_imgs/tmp/img_src.jpg', normalize=True)
+        # save_image(mini_batch['target_image'].float(), './vis_imgs/tmp/img_tgt.jpg', normalize=True)
+        # save_image(mini_batch['correspondence_mask'].unsqueeze(1).float(), './vis_imgs/tmp/img_corr_msk.jpg', normalize=True)
+        # img_warped = warp(mini_batch['source_image'].float(), mini_batch['flow_map'])
+        # save_image(img_warped, './vis_imgs/tmp/img_warped_to_tgt.jpg', normalize=True)
+
         # Run network
         mini_batch = self.batch_processing(mini_batch)  # also put to GPU there
         
-        mini_batch['target_image'] = resize_image(mini_batch['target_image'])   # 224,224
-        mini_batch['source_image'] = resize_image(mini_batch['source_image'])   # 224,224
         if self.net.cost_agg == 'CRAFT' and self.net.reciprocity:   # false
             output_net_original, output_net_rev = self.net(mini_batch['target_image'], mini_batch['source_image'])
             output_net_rev = F.interpolate(output_net_rev, size=(mini_batch['flow_map'].shape[-2], mini_batch['flow_map'].shape[-1]), mode='bilinear')
@@ -344,6 +370,7 @@ class CrocoBasedActor(BaseActor):
         # output_net_original = F.interpolate(output_net_original, size=(mini_batch['flow_map'].shape[-2], mini_batch['flow_map'].shape[-1]), mode='bilinear')
         # output_net_256, output_net_original = self.net(mini_batch['target_image'], mini_batch['source_image'],
                                                 #    mini_batch['target_image_256'], mini_batch['source_image_256'])
+        # breakpoint()
         if self.net.occlusion_mask:   # False
             loss_o_target, stats_o = self.objective(flow_target, mini_batch['flow_map'], mask=mask)
             loss_o_source, stats_o = self.objective(flow_source, mini_batch['flow_map'], mask=mask)
@@ -358,8 +385,6 @@ class CrocoBasedActor(BaseActor):
                 loss_rev_o, stats_rev_o = self.objective(output_net_rev, mini_batch['flow_map'], mask=mask)
                 loss_o = loss_o + loss_rev_o
                 
-        
-        
         # loss_256, stats_256 = self.objective_256(output_net_256, mini_batch['flow_map_256'], mask=mini_batch['mask_256'])
         # loss = loss_o + loss_256
         loss = loss_o
@@ -445,6 +470,8 @@ class CrocoBasedActor(BaseActor):
                                             mask=mini_batch['mask'], mask_256=mini_batch['mask'],
                                             uncertainty_info_original= None,
                                             uncertainty_info_256= None)
+        if log_tool == 'wandb':
+            wandb.log(stats)
 
         return loss, stats
     

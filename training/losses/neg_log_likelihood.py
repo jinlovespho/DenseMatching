@@ -26,6 +26,9 @@ class NLLMixtureLaplace:
                         shape (b, nbr_components, H, W)
             mask: valid mask, where the loss is computed. shape (b, 1, H, W)
         """
+        # breakpoint()
+
+        # PDCNET paper supple B.1 Training Loss implementation
         b, _, h, w = gt_flow.shape
         l1 = torch.logsumexp(weight_map, 1, keepdim=True)
         # shape will be b,1,h,w
@@ -34,7 +37,7 @@ class NLLMixtureLaplace:
         exponent = weight_map - math.log(2) - log_var - reg * torch.exp(-0.5*log_var)
         l2 = torch.logsumexp(exponent, 1, keepdim=True)
 
-        loss = l1 - l2
+        loss = l1 - l2  
 
         if mask is not None:
             mask = ~torch.isnan(loss.detach()) & ~torch.isinf(loss.detach()) & mask
@@ -51,14 +54,14 @@ class NLLMixtureLaplace:
             else:
                 loss = loss.mean()
             return loss
-        elif 'weighted_sum' in self.reduction:
+        elif 'weighted_sum' in self.reduction:  # true
             if mask is not None:
-                loss = loss * mask.float()
+                loss = loss * mask.float()  # true
                 L = 0
                 for bb in range(0, b):
                     norm_const = float(h)*float(w) / (mask[bb, ...].sum().float() + 1e-6)
                     L += loss[bb][mask[bb, ...] != 0].sum() * norm_const
-                if 'normalized' in self.reduction:
+                if 'normalized' in self.reduction:  # true
                     return L / b
                 return L
 

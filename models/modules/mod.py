@@ -223,7 +223,8 @@ class CMDTopResidualConnections(CorrespondenceMapBase):
         self.final = conv_head(32)
 
     def forward(self, x1, x2=None, x3=None):
-        x = super().forward(x1, x2, x3)
+        # breakpoint()
+        x = super().forward(x1, x2, x3) # concats x1 and x3 channel wise. x = concat[ x1: b H_s*W_s H_t W_t, x3: b 2 H_t W_t]
         x0 = self.conv_0(x)
         x0_relu = self.leakyRELU(x0)
         x2 = self.conv_2(self.conv_1(x0_relu))

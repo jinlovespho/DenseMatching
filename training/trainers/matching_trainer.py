@@ -56,7 +56,7 @@ def warp_image_with_flow(image, flow):
 
 class MatchingTrainer(BaseTrainer):
     """Training for matching networks. """
-    def __init__(self, actor, loaders, optimizer, settings, lr_scheduler=None, make_initial_validation=False):
+    def __init__(self, actor, loaders, optimizer, settings, lr_scheduler=None, make_initial_validation=False, args=None):
         """
         args:
             actor - The actor for training the network
@@ -78,6 +78,7 @@ class MatchingTrainer(BaseTrainer):
         tensorboard_writer_dir = os.path.join(self._base_save_dir, self.settings.project_path, 'tensorboard')
         self.tensorboard_writer = TensorboardWriter(tensorboard_writer_dir, [l.name for l in loaders])
         self.move_data_to_gpu = getattr(settings, 'move_data_to_gpu', True)
+        self.log_tool = args.log_tool
 
     def _set_default_settings(self):
         # Dict of all default values
@@ -117,7 +118,7 @@ class MatchingTrainer(BaseTrainer):
             data['settings'] = self.settings
 
             # forward pass
-            loss, stats = self.actor(data, loader.training)
+            loss, stats = self.actor(data, loader.training, self.log_tool)
 
             # backward pass and update weights
             if loader.training:

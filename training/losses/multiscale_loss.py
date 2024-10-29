@@ -26,7 +26,8 @@ class MultiScaleFlow:
             est_flow: estimated flow field, shape (b, 2, H, W)
             mask: valid mask, where the loss is computed. shape (b, H, W)
         """
-        if self.downsample_gt_flow:
+        # breakpoint()
+        if self.downsample_gt_flow: # true gt flow 를 est Flow shape 으로 맞춰주네
             b, _, h, w = est_flow.size()
             gt_flow = F.interpolate(gt_flow, (h, w), mode='bilinear', align_corners=False)
             if mask is not None:
@@ -46,7 +47,7 @@ class MultiScaleFlow:
                     # floor not to include the borders
                     mask = mask.bool() if version.parse(torch.__version__) >= version.parse("1.1") else mask.byte()
 
-        return self.loss_function(est_flow, gt_flow, mask=mask)
+        return self.loss_function(est_flow, gt_flow, mask=mask)     # make gt_flow and est_flow the same shape, and mask if needed. then pass to real loss function
 
     def __call__(self, network_output, gt_flow, mask=None):
         """
@@ -62,8 +63,7 @@ class MultiScaleFlow:
             stats: dict with stats from the loss computation
 
         """
-
-        if isinstance(network_output, dict):
+        if isinstance(network_output, dict):    # true
             # it is a dictionary, extract the flow estimates
             flow_output = network_output['flow_estimates']
         else:
@@ -191,13 +191,14 @@ class MultiScaleMixtureDensity:
                         shape (b, nbr_components, H, W)
             mask: valid mask, where the loss is computed. shape (b, H, W)
         """
-        if self.downsample_gt_flow:
+        # breakpoint()
+        if self.downsample_gt_flow: # true
             b, _, h, w = est_flow.size()
             gt_flow = F.interpolate(gt_flow, (h, w), mode='bilinear', align_corners=False)
             if mask is not None:
                 mask = F.interpolate(mask.float().unsqueeze(1), (h, w), mode='bilinear', align_corners=False).floor()
                 mask = mask.bool() if version.parse(torch.__version__) >= version.parse("1.1") else mask.byte()
-        else:
+        else:   # false
             b, _, h, w = gt_flow.shape
             # upsample output to ground truth flow size
             est_flow = F.interpolate(est_flow, (h, w), mode='bilinear', align_corners=False)
@@ -205,6 +206,14 @@ class MultiScaleMixtureDensity:
             weight_map = F.interpolate(weight_map, (h, w), mode='bilinear', align_corners=False)
             if mask is not None:
                 mask = mask.unsqueeze(1)
+        '''
+            before self.loss_function is called, est_flow, gt_flow, log_var_map, weight_map are all the same shape!
+            est_flow: b 2 h w
+            gt_flow: b 2 h w
+            log_var_map: b 2 h w
+            weight_map: b 2 h w 
+            mask: b 1 h w  
+        '''
         return self.loss_function(est_flow, gt_flow, log_var_map, weight_map, mask=mask)
 
     def __call__(self, network_output, gt_flow, mask=None):
@@ -220,17 +229,23 @@ class MultiScaleMixtureDensity:
             stats: dict with stats from the loss computation
 
         """
-
-        if isinstance(network_output, dict):
+        # breakpoint()
+        if isinstance(network_output, dict):    # true
             # it is a dictionary, extract the flow estimates
-            flow_output = network_output['flow_estimates']
-        else:
+            flow_output = network_output['flow_estimates']  # [flow_deep, flow_shallow]
+        else:   
             flow_output = network_output  # the flow was directly given
         if type(flow_output) not in [tuple, list]:
             flow_output = [flow_output]
 
         assert(len(self.level_weights) == len(flow_output))
         uncertainty_estimate = network_output['uncertainty_estimates']
+
+        '''
+            flow_output: [flow2, flow1]
+            uncertainty_estimate: [[log_var_map2, weight_map2], [log_var_map1, weight_map1]]
+            self.level_weights: [0.02 0.01]
+        '''
 
         stats = {}
         loss = 0
@@ -239,9 +254,9 @@ class MultiScaleMixtureDensity:
             log_var_map = uncertainty_list[0]
             weight_map = uncertainty_list[1]
             b, _, h, w = flow.shape
-            if mask is not None and isinstance(mask, list):
+            if mask is not None and isinstance(mask, list): # false
                 mask_used = mask[level]
-            else:
+            else:   # true
                 mask_used = mask
             level_loss = weight * self.one_scale(flow, gt_flow, log_var_map, weight_map, mask=mask_used)
 

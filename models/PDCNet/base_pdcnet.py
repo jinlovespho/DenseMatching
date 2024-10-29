@@ -93,9 +93,11 @@ class UncertaintyPredictionInference(nn.Module):
         Returns:
             input_corr_uncertainty_dec: B, h_s*w_s, h_t, w_t
         """
-        if self.params.normalize_features:
-            corr_uncertainty = self.corr_module_for_corr_uncertainty_decoder(self.l2norm(c_source),
-                                                                             self.l2norm(c_target))
+        # breakpoint()
+        if self.params.normalize_features:  # true
+            corr_uncertainty = self.corr_module_for_corr_uncertainty_decoder(self.l2norm(c_source),     # 이름만 거창한데, 그냥 c_src, c_tgt 사이에 global corr 구한것. 
+                                                                             self.l2norm(c_target)) 
+            # corr_uncertainty: b 256 16 16
         else:
             corr_uncertainty = self.corr_module_for_corr_uncertainty_decoder(c_source, c_target)
         input_corr_uncertainty_dec = self.l2norm(F.relu(corr_uncertainty))

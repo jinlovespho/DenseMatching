@@ -132,8 +132,8 @@ class EPE:
             else:
                 loss = EPE_map.mean()
             return loss
-        elif 'weighted_sum' in self.reduction:
-            if mask is not None:
+        elif 'weighted_sum' in self.reduction:  # true
+            if mask is not None:    # true 
                 EPE_map = EPE_map * mask.float()
                 L = 0
                 for bb in range(0, b):

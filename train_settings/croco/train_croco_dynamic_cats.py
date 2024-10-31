@@ -140,7 +140,7 @@ def run(settings, args=None):
         model = MultiGPU(model)
 
     # 4. Define batch_processing
-    batch_processing = GLUNetBatchPreprocessing(settings, apply_mask=True, apply_mask_zero_borders=False,
+    batch_processing = GLUNetBatchPreprocessing(settings, apply_mask=args.apply_coco_msk, apply_mask_zero_borders=False,
                                                 sparse_ground_truth=False)
     # 5, Define loss module
     if args.uncertainty:
@@ -163,12 +163,25 @@ def run(settings, args=None):
                                     downsample_gt_flow=True)
         loss_module = MultiScaleFlow(level_weights=weights_level_loss, loss_function=objective, downsample_gt_flow=True)
     else:
-        objective = NLLMixtureLaplace()
-        weights_level_loss = [0.32, 0.08, 0.02, 0.01]
-        loss_module_256 = MultiScaleMixtureDensity(level_weights=weights_level_loss[:2], loss_function=objective,
+        objective = EPE()
+        
+        if args.cost_agg == 'cats_swin_decoder':
+            weights_level_loss = [0.32, 0.32]
+        else:
+            weights_level_loss = [0.32]
+    
+        loss_module_256 = MultiScaleFlow(level_weights=[0.32, 0.08], loss_function=objective,
                                                 downsample_gt_flow=True)
-        loss_module = MultiScaleMixtureDensity(level_weights=[0.32], loss_function=objective,
+        loss_module = MultiScaleFlow(level_weights=weights_level_loss, loss_function=objective,
                                             downsample_gt_flow=True)
+    
+    # else:
+    #     objective = NLLMixtureLaplace()
+    #     weights_level_loss = [0.32, 0.08, 0.02, 0.01]
+    #     loss_module_256 = MultiScaleMixtureDensity(level_weights=weights_level_loss[:2], loss_function=objective,
+    #                                             downsample_gt_flow=True)
+    #     loss_module = MultiScaleMixtureDensity(level_weights=[0.32], loss_function=objective,
+    #                                         downsample_gt_flow=True)
 
 
     # 6. Define actor

@@ -33,7 +33,8 @@ def load_network(net, checkpoint_path=None, **kwargs):
     if 'state_dict' in checkpoint_dict:
         checkpoint_dict = checkpoint_dict['state_dict']
 
-    net.load_state_dict(checkpoint_dict, strict=False)
+    msg1 = net.load_state_dict(checkpoint_dict, strict=False)
+    print('load_network():WEIGHTS WELL LOADED? ', msg1)
     return net
 
 
@@ -228,7 +229,8 @@ def select_model(model_name, pre_trained_model_type, arguments, global_optim_ite
         croco_args['args'] = arguments
         network = CroCoNet(**croco_args)
         estimate_uncertainty = arguments.uncertainty
-        network.load_state_dict(ckpt['model'], strict=False)
+        msg1=network.load_state_dict(ckpt['model'], strict=False)
+        print('WEIGHTS WELL LOADED? ', msg1)
 
     elif model_name == 'croco_flow':
         ckpt = torch.load(pretrain_croco_path,'cpu')
@@ -252,6 +254,8 @@ def select_model(model_name, pre_trained_model_type, arguments, global_optim_ite
     else:
         raise NotImplementedError('the model that you chose does not exist: {}'.format(model_name))
 
+
+
     if path_to_pre_trained_models.endswith('.pth') or path_to_pre_trained_models.endswith('.pth.tar') \
             or path_to_pre_trained_models.endswith('.pt'):
         # if the path already corresponds to a checkpoint path, we use it directly
@@ -266,7 +270,7 @@ def select_model(model_name, pre_trained_model_type, arguments, global_optim_ite
     # if not os.path.exists(checkpoint_fname):
         # raise ValueError('The checkpoint that you chose does not exist, {}'.format(checkpoint_fname))
 
-    if 'croco' not in model_name or 'dust3r' not in model_name:
+    if 'croco' not in model_name or 'dust3r' not in model_name: # true
         if 'CATs' != model_name:
             print("Loading checkpoint from: ", checkpoint_fname)
             network = load_network(network, checkpoint_path=checkpoint_fname)

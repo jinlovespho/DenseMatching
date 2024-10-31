@@ -94,20 +94,22 @@ class MultiscaleBlock(nn.Module):
         '''
         Multi-level aggregation
         '''
-        B, N, H, W = x.shape
-        if N == 1:
+        B, L, N, D = x.shape
+        if L == 1:
             x = x.flatten(0, 1)
             x = x + self.drop_path(self.attn(self.norm1(x)))
             x = x + self.drop_path(self.mlp(self.norm2(x)))
-            return x.view(B, N, H, W)
+            return x.view(B, L, N, D)
+        
         x = x.flatten(0, 1)
-        x = x + self.drop_path(self.attn(self.norm1(x)))
+        x = x + self.drop_path(self.attn(self.norm1(x)))    # tkn 끼리 attn
         x = x + self.drop_path(self.mlp2(self.norm4(x)))
-        x = x.view(B, N, H, W).transpose(1, 2).flatten(0, 1) 
-        x = x + self.drop_path(self.attn_multiscale(self.norm3(x)))
-        x = x.view(B, H, N, W).transpose(1, 2).flatten(0, 1)
+        
+        x = x.view(B, L, N, D).transpose(1, 2).flatten(0, 1)
+        x = x + self.drop_path(self.attn_multiscale(self.norm3(x)))    # layer 끼리 attn
+        x = x.view(B, N, L, D).transpose(1, 2).flatten(0, 1)
         x = x + self.drop_path(self.mlp(self.norm2(x)))
-        x = x.view(B, N, H, W)
+        x = x.view(B, L, N, D)
         return x
 
 
@@ -157,7 +159,7 @@ class TransformerAggregator(nn.Module):
         # x = torch.cat((x.transpose(-1, -2), target), dim=3) + pos_embed
         # x = self.proj(self.blocks(x)).transpose(-1, -2) + corr  # swapping the axis for swapping self-attention.
 
-        x = torch.cat((x, feat), dim=3) + pos_embed
+        x = torch.cat((x, feat), dim=3) + pos_embed # b l n d1+d2
         x = self.proj(self.blocks(x)) + attn_maps 
 
         return x.mean(1)
@@ -408,7 +410,7 @@ class CATs(nn.Module):
         '''
             encfeat_last_src and encfeat_last_tgt are last features of the encoder 
         '''
-        
+        # breakpoint()
         B, _,_ = decfeats_tgt[0].size()
 
         tgt_feats_proj, src_feats_proj = [],[]
@@ -498,6 +500,7 @@ class CATs(nn.Module):
             
             return flow, flow_target,flow_source
         
+        # breakpoint()
         if self.conv4d:
             PH, PW = output_shape[0]//16, output_shape[1]//16
             refined_corr = refined_corr.view(B,PH, PW, PH, PW).unsqueeze(dim=1)

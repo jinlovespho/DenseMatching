@@ -17,6 +17,9 @@ from models.croco.blocks import Block, DecoderBlock, PatchEmbed
 from models.croco.pos_embed import get_2d_sincos_pos_embed, RoPE2D 
 from models.croco.masking import RandomMask
 from models.croco.simple_cats import CATs
+from models.croco.cats_swin import CATs_SWIN
+from models.croco.cats_swin_decoder import CATs_SWIN_Decoder
+
 from .craft import CRAFT
 from .mod import FeatureL2Norm, unnormalise_and_convert_mapping_to_flow
 from einops import rearrange, repeat
@@ -99,7 +102,14 @@ class CroCoNet(nn.Module):
             
             dim_tokens_enc = 768
             self.hierarchical_cats = HierarchicalCATs(dim_tokens_enc = dim_tokens_enc, hooks = [0,1,2,3], args=args, conv4d_feature = 128, depth=args.cats_depth)
-        
+
+        elif self.cost_agg=='cats_swin':
+            self.cats_swin = CATs_SWIN(feature_size=(img_size[0]//16), hyperpixel_ids = [i for i in range(0, 12)], output_interp=output_interp, cost_transformer=self.cost_transformer, args=args,depth=cats_depth)
+            
+        elif self.cost_agg=='cats_swin_decoder':
+            self.cats_swin_decoder = CATs_SWIN_Decoder(feature_size=(img_size[0]//16), hyperpixel_ids = [i for i in range(0, 12)], output_interp=output_interp, cost_transformer=self.cost_transformer, args=args,depth=cats_depth)
+         
+
         # JLP
         elif self.cost_agg == 'try1_cats_attnmap_with_encfeat':
             self.cats = CATs(feature_size=(img_size[0]//16), hyperpixel_ids = [i for i in range(0, 4)], output_interp=False, cost_transformer=self.cost_transformer, args=args,depth=4, conv4d=True)
@@ -179,7 +189,7 @@ class CroCoNet(nn.Module):
         self.dec_norm = norm_layer(dec_embed_dim)
 
         # jinlovespho
-        self.dec_blocks2 = deepcopy(self.dec_blocks)
+        # self.dec_blocks2 = deepcopy(self.dec_blocks)
         
     def _set_prediction_head(self, dec_embed_dim, patch_size):
          self.prediction_head = nn.Linear(dec_embed_dim, patch_size**2 * 3, bias=True)
@@ -283,48 +293,48 @@ class CroCoNet(nn.Module):
             return out, attn_maps
         return out, None
 
-    def _decoder2(self, feat1, pos1, masks1, feat2, pos2, return_all_blocks=False):
-        """
-        return_all_blocks: if True, return the features at the end of every block 
-                           instead of just the features from the last block (eg for some prediction heads)
+    # def _decoder2(self, feat1, pos1, masks1, feat2, pos2, return_all_blocks=False):
+    #     """
+    #     return_all_blocks: if True, return the features at the end of every block 
+    #                        instead of just the features from the last block (eg for some prediction heads)
                            
-        masks1 can be None => assume image1 fully visible 
-        """
-        # encoder to decoder layer 
-        visf1 = self.decoder_embed(feat1)
-        f2 = self.decoder_embed(feat2)
-        # append masked tokens to the sequence
-        B,Nenc,C = visf1.size()
-        if masks1 is None: # downstreams
-            f1_ = visf1
-        else: # pretraining 
-            Ntotal = masks1.size(1)
-            f1_ = self.mask_token.repeat(B, Ntotal, 1).to(dtype=visf1.dtype)
-            f1_[~masks1] = visf1.view(B * Nenc, C)
-        # add positional embedding
-        if self.dec_pos_embed is not None:
-            f1_ = f1_ + self.dec_pos_embed
-            f2 = f2 + self.dec_pos_embed
-        # apply Transformer blocks
-        out = f1_
-        out2 = f2 
-        attn_maps = []
-        if return_all_blocks:
-            _out, out = out, []
-            for blk in self.dec_blocks2:
-                _out, out2, attn_map = blk(_out, out2, pos1, pos2)
-                out.append(_out)
-                attn_maps.append(attn_map)
-            out[-1] = self.dec_norm(out[-1])
-        else:
-            for blk in self.dec_blocks2:
-                out, out2, attn_map = blk(out, out2, pos1, pos2)
-                attn_maps.append(attn_map)
-            out = self.dec_norm(out)
+    #     masks1 can be None => assume image1 fully visible 
+    #     """
+    #     # encoder to decoder layer 
+    #     visf1 = self.decoder_embed(feat1)
+    #     f2 = self.decoder_embed(feat2)
+    #     # append masked tokens to the sequence
+    #     B,Nenc,C = visf1.size()
+    #     if masks1 is None: # downstreams
+    #         f1_ = visf1
+    #     else: # pretraining 
+    #         Ntotal = masks1.size(1)
+    #         f1_ = self.mask_token.repeat(B, Ntotal, 1).to(dtype=visf1.dtype)
+    #         f1_[~masks1] = visf1.view(B * Nenc, C)
+    #     # add positional embedding
+    #     if self.dec_pos_embed is not None:
+    #         f1_ = f1_ + self.dec_pos_embed
+    #         f2 = f2 + self.dec_pos_embed
+    #     # apply Transformer blocks
+    #     out = f1_
+    #     out2 = f2 
+    #     attn_maps = []
+    #     if return_all_blocks:
+    #         _out, out = out, []
+    #         for blk in self.dec_blocks2:
+    #             _out, out2, attn_map = blk(_out, out2, pos1, pos2)
+    #             out.append(_out)
+    #             attn_maps.append(attn_map)
+    #         out[-1] = self.dec_norm(out[-1])
+    #     else:
+    #         for blk in self.dec_blocks2:
+    #             out, out2, attn_map = blk(out, out2, pos1, pos2)
+    #             attn_maps.append(attn_map)
+    #         out = self.dec_norm(out)
             
-        if self.attn_map_output:
-            return out, attn_maps
-        return out, None
+    #     if self.attn_map_output:
+    #         return out, attn_maps
+    #     return out, None
 
 
     def patchify(self, imgs):
@@ -423,7 +433,7 @@ class CroCoNet(nn.Module):
             decfeat_src, attn_map_src = self._decoder(encfeat_last_src, pos_source, mask_source, encfeat_last_tgt, pos_target, return_all_blocks=True)
         
         ## heuristic attention refine
-        attn_map_tgt = [attn.mean(dim=1).detach() for attn in attn_map_tgt]
+        attn_map_tgt = [attn.mean(dim=1).detach() for attn in attn_map_tgt] # head avg
         for i in range(len(attn_map_tgt)):
             attn_map_tgt[i][:,:,0]=attn_map_tgt[i].min()
         self.attn_map_tgt = attn_map_tgt
@@ -433,12 +443,13 @@ class CroCoNet(nn.Module):
                 attn_map_src[i][:,:,0]=attn_map_src[i].min()    
 
         # breakpoint()
+        # cost aggregation methods
         if self.cost_agg == 'cats':
             decfeat_tgt = [feat.detach() for feat in decfeat_tgt]
             if self.reciprocity:
                 decfeat_src = [feat.detach() for feat in decfeat_src]
                 
-                if self.occlusion_mask:
+                if self.occlusion_mask: # false
                     out, out_target, out_source = self.cats(attn_map_tgt, decfeat_tgt, (H,W), encfeat_last_src, encfeat_last_tgt, attn_map_src, decfeat_src, img_target, img_source)
                     return out,out_target,out_source
                 
@@ -448,6 +459,24 @@ class CroCoNet(nn.Module):
                 out = self.cats(attn_map_tgt, decfeat_tgt, (H,W), encfeat_last_src, encfeat_last_tgt)
             
             return out
+        
+        elif self.cost_agg == 'cats_swin':
+            decfeat_tgt = [feat.detach() for feat in decfeat_tgt]   # len(decfeat_tgt) = 12
+            if self.reciprocity:    # true
+                decfeat_src = [feat.detach() for feat in decfeat_src]
+                flow = self.cats_swin(attn_map_tgt, decfeat_tgt, (H,W), encfeat_last_src, encfeat_last_tgt, attn_map_src, decfeat_src, img_target, img_source)
+            else:
+                flow = self.cats_swin(attn_map_tgt, decfeat_tgt, (H,W), encfeat_last_src, encfeat_last_tgt)
+            return flow
+        
+        elif self.cost_agg == 'cats_swin_decoder':
+            decfeat_tgt = [feat.detach() for feat in decfeat_tgt]
+            if self.reciprocity:    # true
+                decfeat_src = [feat.detach() for feat in decfeat_src]
+                flow = self.cats_swin_decoder(attn_map_tgt, decfeat_tgt, (H,W), encfeat_last_src, encfeat_last_tgt, attn_map_src, decfeat_src, img_target, img_source, appearance_feature = [feat_targets[8],feat_targets[16]])   
+            else:
+                flow = self.cats_swin_decoder(attn_map_tgt, decfeat_tgt, (H,W), encfeat_last_src, encfeat_last_tgt, appearance_feature = [feat_targets[8],feat_targets[16]])
+            return flow
         
         elif self.cost_agg == 'hierarchical_cats' or self.cost_agg == 'hierarchical_residual_cats': # true
             assert self.reciprocity, "reciprocity must be True for hierarchical_cats"
@@ -530,8 +559,6 @@ class CroCoNet(nn.Module):
 
         elif self.cost_agg == 'try2_cats_attnmap_with_decfeat':
             pass
-
-            breakpoint()
         
         elif self.cost_agg == 'CRAFT':
             out = self.craft(decfeat_tgt, (H,W), attn_map_tgt)

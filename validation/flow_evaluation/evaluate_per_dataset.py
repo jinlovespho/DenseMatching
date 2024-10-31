@@ -409,6 +409,8 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
     pbar = tqdm(enumerate(test_dataloader), total=len(test_dataloader))
     mean_epe_list, epe_all_list, pck_1_list, pck_3_list, pck_5_list = [], [], [], [], []
     dict_list_uncertainties = {}
+    
+    # breakpoint()
     for i_batch, mini_batch in pbar:
         source_img = mini_batch['source_image']
         target_img = mini_batch['target_image']
@@ -444,7 +446,7 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
             source_img = (source_img - in1k_mean) / in1k_std
             target_img = (target_img - in1k_mean) / in1k_std
 
-            H,W = args.image_shape
+            H,W = args.image_shape  # 224 224
             H_32, W_32 = (H//32)*32, (W//32)*32
 
             source_img = F.interpolate(source_img, size=(H_32, W_32), mode='bilinear', align_corners=False).to(device)
@@ -485,6 +487,7 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
                 # flow_est = flow_est[:,:2]
                 # flow_pred = flow_est.clone()
                 pass
+
         else:
             H,W = args.image_shape
             H_32, W_32 = (H//32)*32, (W//32)*32
@@ -502,8 +505,13 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
         # flow_est = F.interpolate(flow_est[0], size=(H_32, W_32), mode='bilinear', align_corners=False).to(device)
         # flow_est[:,0,:,:] *= W_32/W_est
         # flow_est[:,1,:,:] *= H_32/H_est
-        flow_pred = flow_est.clone()
-        flow_gt2 = flow_gt.clone()
+
+        if args.cost_agg == 'hierarchical_conv4d_cats_level_4stage':
+            flow_est = flow_est[0].clone()
+            flow_gt = flow_gt.clone()
+
+        # flow_pred = flow_est.clone()
+        # flow_gt2 = flow_gt.clone()
 
         flow_est = flow_est.permute(0, 2, 3, 1)[mask_valid]
         flow_gt = flow_gt.permute(0, 2, 3, 1)[mask_valid]

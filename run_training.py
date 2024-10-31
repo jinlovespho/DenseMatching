@@ -86,6 +86,7 @@ def main():
     parser.add_argument('--wandb_path', type=str, default=None)
     parser.add_argument('--eval_ds', type=str, default=None)
     parser.add_argument('--multi_gpu', action='store_true', help='Multi GPU')
+    parser.add_argument('--apply_coco_msk', action='store_true', help='Apply coco mask')
 
 
     args = parser.parse_args()

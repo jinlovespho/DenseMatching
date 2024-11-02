@@ -88,20 +88,6 @@ def run(settings, args):
     model.train()
     model = model.to(device)
 
-    total_params = sum(p.numel() for p in model.parameters())
-    total_params_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"Total params: {total_params/1e6:.2f} M")
-    print(f"Total params trainable: {total_params_trainable/1e6:.2f} M")
-    model_size = sum(p.numel()*p.element_size() for p in model.parameters())
-    print(f"Model size: {model_size/1e6:.2f} GB")
-
-    # add more config args to wandb
-    if args.log_tool == 'wandb':
-        wandb.config.update({'total_params': total_params/1e6,
-                             'total_params_trainable': total_params_trainable/1e6,
-                             'model_size': model_size/1e6,
-                             'croco_args': ckpt_args.croco_args})
-
     # but better results are obtained with using simple bilinear interpolation instead of deconvolutions.
     print(colored('==> ', 'blue') + 'model created.')
 
@@ -120,12 +106,39 @@ def run(settings, args):
 
     # 6. Define actor
     GLUNetActor = CrocoBasedActor(model, objective=loss_module,batch_processing=batch_processing, args=args)
+    
 
     # 7. Define Optimizer
-    optimizer = \
-        optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()),
-                   lr=settings.lr,
-                   weight_decay=0.05)
+
+    if args.freeze_croco_enc:
+        print('Freezing encoder parameters!')
+        # Freeze parameters
+        for name, param in model.named_parameters():
+            if 'enc_blocks' in name or 'enc_norm' in name:
+                param.requires_grad = False
+    else:
+        pass
+        
+            
+    optimizer = optim.AdamW( filter(lambda p: p.requires_grad, model.parameters()), 
+                             lr=settings.lr, 
+                             weight_decay=0.05)
+
+
+    total_params = sum(p.numel() for p in model.parameters())
+    total_params_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"TOTAL PARAMS: {total_params/1e6:.2f} M")
+    print(f"TOTAL PARAMS (TRAINABLE): {total_params_trainable/1e6:.2f} M")
+    model_size = sum(p.numel()*p.element_size() for p in model.parameters())
+    print(f"Model size: {model_size/1e6:.2f} GB")
+
+    # add more config args to wandb
+    if args.log_tool == 'wandb':
+        wandb.config.update({'total_params': total_params/1e6,
+                             'total_params_trainable': total_params_trainable/1e6,
+                             'model_size': model_size/1e6,
+                             'croco_args': ckpt_args.croco_args})
+        
 
     # 8. Define Scheduler
     scheduler = lr_scheduler.MultiStepLR(optimizer,
@@ -134,7 +147,6 @@ def run(settings, args):
 
     # 9. Define Trainer
     trainer = MatchingTrainer(GLUNetActor, [train_loader, val_loader], optimizer, settings, lr_scheduler=scheduler, args=args)
-
     trainer.train(settings.n_epochs, load_latest=True, fail_safe=True)
 
 

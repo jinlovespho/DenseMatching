@@ -1,5 +1,5 @@
 #!/bin/bash
-CUDA=5
+CUDA=7
 BATCH_SIZE=12
 
 DATA_ARGS="
@@ -20,6 +20,7 @@ TRAIN_ARGS="
 MODEL_ARGS="
     --model crocoflow \
     --croco_ckpt ./pretrained_weights/crocoflow.pth \
+    --freeze_croco_enc \
 "
 
 
@@ -27,7 +28,7 @@ LOG_ARGS="
     --log_tool wandb \
     --wandb_path ./ \
     --wandb_proj_name matching_dped \
-    --wandb_exp_name pho${CUDA}_TRAIN_dpedmsk_img224_bs${BATCH_SIZE}_lr2e5_crocoflow_baseline_fullfinetuning \
+    --wandb_exp_name pho${CUDA}_TRAIN_dpedmsk_img224_bs${BATCH_SIZE}_lr2e5_crocoflow_baseline_freezeEnc \
 "
 
 

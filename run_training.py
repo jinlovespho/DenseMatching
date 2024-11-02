@@ -81,6 +81,7 @@ def main():
     # model_args
     parser.add_argument('--model', type=str, default='crocoflow')
     parser.add_argument('--croco_ckpt', type=str, default=None)
+    parser.add_argument('--freeze_croco_enc', action='store_true', help='Freeze croco encoder')
 
     # log_args
     parser.add_argument('--log_tool', type=str, default=None)

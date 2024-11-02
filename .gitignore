@@ -1,0 +1,16 @@
+**/__pycache__
+**/.ipynb_checkpoints
+**/*.pyc
+*.idea
+**/*.pth.tar
+**/*.pth
+**qsublogs
+**qsub_logs
+admin/local.py
+
+# JLP
+pretrained_weights/
+vis/
+**.jpg
+**.png
+wandb/

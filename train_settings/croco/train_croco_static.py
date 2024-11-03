@@ -63,30 +63,76 @@ def run(settings, args):
     val_loader = Loader('val', val_dataset, batch_size=settings.batch_size, shuffle=False,
                         epoch_interval=1.0, training=False, num_workers=settings.n_threads)
 
-
+    print('args.model:', args.model)
     # 3. Define model
-    from models.orig_croco.models.croco_downstream import CroCoDownstreamBinocular, croco_args_from_ckpt
-    from models.orig_croco.models.head_downstream import PixelwiseTaskWithDPT
+    if args.model == 'crocoflow':
+        from models.orig_croco.models.croco_downstream import CroCoDownstreamBinocular, croco_args_from_ckpt
+        from models.orig_croco.models.head_downstream import PixelwiseTaskWithDPT
+        ckpt = torch.load(args.croco_ckpt, 'cpu')   # crocoflow.pth
+        ckpt_args = ckpt['args']
+        ckpt_args.croco_args['img_size'] = args.img_size if args.img_size is not None else [320, 384]
+        task = ckpt_args.task   # 'flow'
+        tile_conf_mode = ckpt_args.tile_conf_mode   # tile_conf_mode='conf_expsigmoid_10_5'
+        num_channels = {'stereo': 1, 'flow': 2}[task]   # 2
+        with_conf = True
+        if with_conf: num_channels += 1
+        print('head: PixelwiseTaskWithDPT()')
+        head = PixelwiseTaskWithDPT()
+        head.num_channels = num_channels
+        print('croco_args:', ckpt_args.croco_args)
+        croco_args = ckpt_args.croco_args
+        model = CroCoDownstreamBinocular(head, **croco_args)
+        msg = model.load_state_dict(ckpt['model'], strict=True)
+        print('CROCO WEIGHT WELL LOADED: ', msg)
+        model.train()
+        model = model.to(device)        
 
-    ckpt = torch.load(args.croco_ckpt, 'cpu')   # crocoflow.pth
-    ckpt['args']
-    ckpt_args = ckpt['args']
-    ckpt_args.croco_args['img_size'] = args.img_size if args.img_size is not None else [320, 384]
+    elif args.model =='croco_catseg':
+        from models.croco.croco import CroCoNet
+        from models.croco.croco_downstream import croco_args_from_ckpt
 
-    task = ckpt_args.task   # 'flow'
-    tile_conf_mode = ckpt_args.tile_conf_mode   # tile_conf_mode='conf_expsigmoid_10_5'
-    num_channels = {'stereo': 1, 'flow': 2}[task]   # 2
-    with_conf = True
-    if with_conf: num_channels += 1
-    print('head: PixelwiseTaskWithDPT()')
-    head = PixelwiseTaskWithDPT()
-    head.num_channels = num_channels
-    print('croco_args:', ckpt_args.croco_args)
-    model = CroCoDownstreamBinocular(head, **ckpt_args.croco_args)
-    msg = model.load_state_dict(ckpt['model'], strict=True)
-    print('CROCO WEIGHT WELL LOADED: ', msg)
-    model.train()
-    model = model.to(device)
+        ckpt = torch.load(args.croco_ckpt, 'cpu')
+        croco_args = croco_args_from_ckpt(ckpt)
+        croco_args['img_size'] = args.img_size
+        croco_args['args'] = args
+        model = CroCoNet(**croco_args)
+        msg=model.load_state_dict(ckpt['model'], strict=False)
+        print('CROCO WEIGHT WELL LOADED: ', msg)
+        model.train()
+        model = model.to(device)
+
+    else:
+        raise NotImplementedError(f'Model {args.model} not implemented')
+    
+
+    # 3-2. Set Trainable Parameters
+    if args.freeze == 'croco_enc':
+        print('Freezing encoder parameters!')
+        # Freeze parameters
+        for name, param in model.named_parameters():
+            if 'enc_blocks' in name or 'enc_norm' in name:
+                param.requires_grad = False
+
+    elif args.freeze == 'croco_all':
+        print('Freezing all croco parameters!')
+        for name, param in model.named_parameters():
+            if 'cats_swin_decoder' in name:
+                param.requires_grad = True
+            else:
+                param.requires_grad = False
+    else:
+        print('Full Fine Tuning!')
+    
+    # 3-3. Show params and trainable params
+    print('----------------------------------------------------------------')   
+    tot_params = sum(p.numel() for p in model.parameters()) 
+    tot_model_size = sum(p.numel()*p.element_size() for p in model.parameters()) 
+    print(f"TOTAL PARAMS: {tot_params/1e6:.2f} M, TOTAL MODEL SIZE: {tot_model_size/1e6:.2f} MB")
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    trainable_model_size = sum(p.numel()*p.element_size() for p in model.parameters() if p.requires_grad)
+    print(f"TRAINABLE PARAMS: {trainable_params/1e6:.2f} M, TRAINABLE MODEL SIZE: {trainable_model_size/1e6:.2f} MB")
+    print('----------------------------------------------------------------')
+
 
     # but better results are obtained with using simple bilinear interpolation instead of deconvolutions.
     print(colored('==> ', 'blue') + 'model created.')
@@ -101,43 +147,28 @@ def run(settings, args):
 
     # 5, Define loss module
     objective = EPE()
-    weights_level_loss = [0.32]
+    if args.model == 'crocoflow':
+        weights_level_loss = [0.32]
+    elif args.model == 'croco_catseg':
+        weights_level_loss = [0.32, 0.32]
     loss_module = MultiScaleFlow(level_weights=weights_level_loss, loss_function=objective, downsample_gt_flow=True)
 
     # 6. Define actor
     GLUNetActor = CrocoBasedActor(model, objective=loss_module,batch_processing=batch_processing, args=args)
     
 
-    # 7. Define Optimizer
-
-    if args.freeze_croco_enc:
-        print('Freezing encoder parameters!')
-        # Freeze parameters
-        for name, param in model.named_parameters():
-            if 'enc_blocks' in name or 'enc_norm' in name:
-                param.requires_grad = False
-    else:
-        pass
-        
-            
+    # 7. Define Optimizer            
     optimizer = optim.AdamW( filter(lambda p: p.requires_grad, model.parameters()), 
                              lr=settings.lr, 
                              weight_decay=0.05)
-
-
-    total_params = sum(p.numel() for p in model.parameters())
-    total_params_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"TOTAL PARAMS: {total_params/1e6:.2f} M")
-    print(f"TOTAL PARAMS (TRAINABLE): {total_params_trainable/1e6:.2f} M")
-    model_size = sum(p.numel()*p.element_size() for p in model.parameters())
-    print(f"Model size: {model_size/1e6:.2f} GB")
-
+    
     # add more config args to wandb
     if args.log_tool == 'wandb':
-        wandb.config.update({'total_params': total_params/1e6,
-                             'total_params_trainable': total_params_trainable/1e6,
-                             'model_size': model_size/1e6,
-                             'croco_args': ckpt_args.croco_args})
+        wandb.config.update({'tot_params': tot_params/1e6,
+                             'tot_trainable_params': trainable_params/1e6,
+                             'tot_model_size': tot_model_size/1e6,
+                             'tot_trainable_model_size': trainable_model_size/1e6,
+                             'croco_args': croco_args})
         
 
     # 8. Define Scheduler
@@ -147,7 +178,7 @@ def run(settings, args):
 
     # 9. Define Trainer
     trainer = MatchingTrainer(GLUNetActor, [train_loader, val_loader], optimizer, settings, lr_scheduler=scheduler, args=args)
-    trainer.train(settings.n_epochs, load_latest=True, fail_safe=True)
+    trainer.train(settings.n_epochs, load_latest=False, fail_safe=True)
 
 
 

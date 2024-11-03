@@ -42,7 +42,8 @@ def run_training(train_module, train_name, seed, cudnn_benchmark=True, args=None
     settings = ws_settings.Settings()
     settings.module_name = train_module
     settings.script_name = train_name
-    settings.project_path = f'train_settings/{train_module}/{train_name}'
+    settings.copy_project_path = f'train_settings/{train_module}/{train_name}'
+    settings.project_path = f'{settings.copy_project_path}/{args.wandb_exp_name}'
     settings.seed = seed
 
     # will save the checkpoints there
@@ -50,13 +51,13 @@ def run_training(train_module, train_name, seed, cudnn_benchmark=True, args=None
     save_dir = os.path.join(settings.env.workspace_dir, settings.project_path)
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-    copyfile(settings.project_path + '.py', os.path.join(save_dir, settings.script_name + '.py'))
+    copyfile(settings.copy_project_path + '.py', os.path.join(save_dir, settings.script_name + '.py'))
 
     expr_module = importlib.import_module('train_settings.{}.{}'.format(train_module.replace('/', '.'),
                                                                         train_name.replace('/', '.')))
     expr_func = getattr(expr_module, 'run')
 
-    expr_func(settings, args)
+    expr_func(settings, args=args)
 
 
 def main():
@@ -81,7 +82,13 @@ def main():
     # model_args
     parser.add_argument('--model', type=str, default='crocoflow')
     parser.add_argument('--croco_ckpt', type=str, default=None)
-    parser.add_argument('--freeze_croco_enc', action='store_true', help='Freeze croco encoder')
+    parser.add_argument('--freeze', type=str, default='none')
+
+    parser.add_argument('--output_flow_interp', action='store_true', help='Output flow interpolation')
+    parser.add_argument('--output_ca_map', action='store_true', help='Output decoder cross attention map')
+    parser.add_argument('--softmax_camap', action='store_true', help='apply Softmax to the output cross attention map')
+    parser.add_argument('--correlation', action='store_true', help='Correlation')
+    parser.add_argument('--reciprocity', action='store_true', help='Reciprocity')
 
     # log_args
     parser.add_argument('--log_tool', type=str, default=None)
@@ -91,14 +98,6 @@ def main():
 
     # etc_args
     parser.add_argument('--multi_gpu', action='store_true', help='Multi GPU')   # default is False
-    
-
-    # --softmaxattn \
-    # --reciprocity \
-    # --cost_agg cats_swin_decoder \
-    # --cost_transformer \
-    # --correlation \
-
 
     args = parser.parse_args()
 

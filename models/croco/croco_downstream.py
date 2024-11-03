@@ -11,7 +11,6 @@ from .croco import CroCoNet
 
 
 def croco_args_from_ckpt(ckpt):
-    breakpoint()
     if 'croco_kwargs' in ckpt: # CroCo v2 released models
         return ckpt['croco_kwargs']
     elif 'args' in ckpt and hasattr(ckpt['args'], 'model'): # pretrained using the official code release

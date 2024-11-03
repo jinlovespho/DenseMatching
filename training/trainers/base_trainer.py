@@ -149,6 +149,7 @@ class BaseTrainer:
             'epoch_of_best_val': self.epoch_of_best_val
         }
 
+        # breakpoint()
         directory = '{}/{}'.format(self._base_save_dir, self.settings.project_path)
         if not os.path.exists(directory):
             os.makedirs(directory)

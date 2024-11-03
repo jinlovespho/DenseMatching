@@ -137,7 +137,7 @@ class Block(nn.Module):
 
 class CrossAttention(nn.Module):
     
-    def __init__(self, dim, rope=None, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0., softmaxattn=False):
+    def __init__(self, dim, rope=None, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0., softmax_camap=True):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
@@ -150,7 +150,7 @@ class CrossAttention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
         
-        self.softmaxattn= softmaxattn
+        self.softmax_camap= softmax_camap
         self.rope = rope
         self.attn_map = None
         self.attn_map_tmp = None
@@ -178,9 +178,8 @@ class CrossAttention(nn.Module):
         attn_tmp = attn.clone().detach()  
         
         attn = attn.softmax(dim=-1)
-        if self.softmaxattn:
+        if self.softmax_camap:
             attn_tmp = attn.clone().detach()
-            # self.attn_map = attn_tmp
 
         attn = self.attn_drop(attn)
 
@@ -192,11 +191,11 @@ class CrossAttention(nn.Module):
 class DecoderBlock(nn.Module):
 
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, norm_mem=True, rope=None, softmaxattn=False):
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, norm_mem=True, rope=None, softmax_camap=True):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.attn = Attention(dim, rope=rope, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
-        self.cross_attn = CrossAttention(dim, rope=rope, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop, softmaxattn=softmaxattn)
+        self.cross_attn = CrossAttention(dim, rope=rope, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop, softmax_camap=softmax_camap)
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         self.norm3 = norm_layer(dim)
@@ -249,8 +248,8 @@ class PatchEmbed(nn.Module):
         
     def forward(self, x):
         B, C, H, W = x.shape
-        torch._assert(H == self.img_size[0], f"Input image height ({H}) doesn't match model ({self.img_size[0]}).")
-        torch._assert(W == self.img_size[1], f"Input image width ({W}) doesn't match model ({self.img_size[1]}).")
+        # torch._assert(H == self.img_size[0], f"Input image height ({H}) doesn't match model ({self.img_size[0]}).")
+        # torch._assert(W == self.img_size[1], f"Input image width ({W}) doesn't match model ({self.img_size[1]}).")
         x = self.proj(x)
         pos = self.position_getter(B, x.size(2), x.size(3), x.device)
         if self.flatten:

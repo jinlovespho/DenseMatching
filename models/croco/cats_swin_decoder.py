@@ -443,26 +443,22 @@ class CATs_SWIN_Decoder(nn.Module):
     num_heads=6,
     mlp_ratio=4,
     hyperpixel_ids=[0,8,20,21,26,28,29,30],
-    output_interp=False,
-    cost_transformer=True,
-    args=None,):
+    args=None):
         super().__init__()
+
+        # JLP
+        self.reciprocity = args.reciprocity
+        self.correlation = args.correlation
+        self.output_flow_interp = args.output_flow_interp
+
         self.feature_size = feature_size
         self.feature_proj_dim = feature_proj_dim
         self.decoder_embed_dim = self.feature_size + self.feature_proj_dim
-        self.cost_transformer=cost_transformer
-        self.args=args
-        self.correlation = getattr(args,'correlation',False)
-        self.reciprocity = getattr(args,'reciprocity',False)
-        self.occlusion_mask = getattr(args,'occlusion_mask',False)
 
         channels = [768]*12
         if self.correlation:
             channels = [1024]+channels
             hyperpixel_ids = hyperpixel_ids + [12]
-            
-
-
 
         # self.feature_extraction = FeatureExtractionHyperPixel(hyperpixel_ids, feature_size, freeze)
         self.ln = nn.ModuleList([nn.LayerNorm(channels[i]) for i in hyperpixel_ids])
@@ -504,8 +500,6 @@ class CATs_SWIN_Decoder(nn.Module):
         self.decoder2 = Up(decoder_dims[0], decoder_dims[1], decoder_guidance_proj_dims[1], intermediate_dim=32)
         self.head = nn.Conv2d(decoder_dims[1], 1, kernel_size=3, stride=1, padding=1)
         
-        
-        self.output_interp = output_interp
         
     def softmax_with_temperature(self, x, beta, d = 1):
         r'''SFNet: Learning Object-aware Semantic Flow (Lee et al.)'''
@@ -635,13 +629,7 @@ class CATs_SWIN_Decoder(nn.Module):
         refined_layered_corr = self.decoder(attn_maps, tgt_feats)
         refined_corr = refined_layered_corr.mean(dim=1)
         
-        if self.args.reverse:
-            src_feats = torch.stack(src_feats_proj, dim=1)
-            attn_maps_source = torch.stack(attn_maps_source, dim=1)
-            refined_corr_source = self.decoder(attn_maps_source, src_feats)
-            refined_corr_target = refined_corr
-            refined_corr = (refined_corr_source.transpose(-1,-2))
-        elif self.reciprocity:
+        if self.reciprocity:
             src_feats = torch.stack(src_feats_proj, dim=1)
             attn_maps_source = torch.stack(attn_maps_source, dim=1)
             refined_layered_corr_source = self.decoder(attn_maps_source, src_feats)
@@ -651,12 +639,6 @@ class CATs_SWIN_Decoder(nn.Module):
             refined_layered_corr = (refined_layered_corr + refined_layered_corr_source.transpose(-1,-2)) / 2
             
             refined_corr = (refined_corr + refined_corr_source.transpose(-1,-2)) / 2
-        
-        if not self.cost_transformer:
-            refined_corr = attn_maps.mean(dim=1) ## target source
-            # refined_corr = (attn_maps.mean(dim=1) + attn_maps_source.mean(dim=1).transpose(-1,-2))/2.
-            # refined_corr = self.corr(self.l2norm(feat_target.permute(0,2,1)),self.l2norm(feat_source.permute(0,2,1)))
-            
 
         grid_x, grid_y = self.soft_argmax(refined_corr.transpose(-1,-2).view(B, -1, self.feature_size, self.feature_size),beta=2e-2)
         self.grid_x = grid_x
@@ -665,7 +647,7 @@ class CATs_SWIN_Decoder(nn.Module):
         coarse_flow = torch.cat((grid_x, grid_y), dim=1)
         coarse_flow = unnormalise_and_convert_mapping_to_flow(coarse_flow)
         h, w = coarse_flow.shape[-2:]
-        if self.output_interp:
+        if self.output_flow_interp:
             coarse_flow = F.interpolate(coarse_flow, size=output_shape, mode='bilinear', align_corners=False)
             coarse_flow[:, 0] *= float(output_shape[1]) / float(w)
             coarse_flow[:, 1] *= float(output_shape[0]) / float(h)
@@ -686,17 +668,9 @@ class CATs_SWIN_Decoder(nn.Module):
         fine_flow = torch.cat((fine_gridx, fine_gridy), dim=1)
         fine_flow = unnormalise_and_convert_mapping_to_flow(fine_flow)
         h, w = fine_flow.shape[-2:]
-        if self.output_interp:
+        if self.output_flow_interp:
             fine_flow = F.interpolate(fine_flow, size=output_shape, mode='bilinear', align_corners=False)
             fine_flow[:, 0] *= float(output_shape[1]) / float(w)
             fine_flow[:, 1] *= float(output_shape[0]) / float(h)
-
-        
-        
-        # up_h, up_w = upsampled_corr.shape[-2:]
-        
-        # fine_flow = F.interpolate(upsampled_corr, size=output_shape, mode='bilinear', align_corners=False)
-        # fine_flow[:, 0] *= float(output_shape[1]) #/ float(up_w)
-        # fine_flow[:, 1] *= float(output_shape[0]) #/ float(up_h)
 
         return [fine_flow, coarse_flow]

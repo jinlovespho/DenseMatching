@@ -296,10 +296,17 @@ class CrocoBasedActor(BaseActor):
         # ======================== Vis images ===============================
         
         if self.args.model == 'crocoflow':
-            out = self.net(mini_batch['target_image'], mini_batch['source_image'])  # b 3 predflow_h predflow_w
-            output_net_original = out[:,:-1,:,:]
-            conf = out[:,-1,:,:]
-            mask = mini_batch['mask']   # None
+            output_flow = self.net(mini_batch['target_image'], mini_batch['source_image'])  # b 3 predflow_h predflow_w
+            output_net_original = output_flow[:,:-1,:,:]
+            conf = output_flow[:,-1,:,:]
+            mask = mini_batch['mask']  
+            loss_o, stats_o = self.objective(output_net_original, mini_batch['flow_map'], mask=mask)
+        
+        elif self.args.model == 'croco_catseg':
+            output_flow = self.net(mini_batch['target_image'], mini_batch['source_image'])  # b 3 predflow_h predflow_w
+            # output_flow = [fine_flow, coarse_flow] 
+            output_net_original = output_flow
+            mask = mini_batch['mask']  
             loss_o, stats_o = self.objective(output_net_original, mini_batch['flow_map'], mask=mask)
 
         loss = loss_o

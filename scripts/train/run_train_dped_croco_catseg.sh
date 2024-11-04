@@ -1,7 +1,7 @@
 #!/bin/bash
 
 CUDA=4
-BATCH_SIZE=8
+BATCH_SIZE=10
 
 DATA_ARGS="
     --dataset dped \
@@ -11,7 +11,7 @@ TRAIN_ARGS="
     --seed 1997 \
     --img_size 224 224 \
     --batch_size ${BATCH_SIZE} \
-    --lr 1e-4 \
+    --lr 1e-3 \
     --max_epoch 100 \
 "
 MODEL_ARGS="
@@ -24,11 +24,14 @@ MODEL_ARGS="
     --reciprocity \
     --freeze croco_all \
 "
+# --freeze none     # full fine tuning
+# --freeze croco_enc    # freeze only croco encoder
+# --freeze croco_all    # freeze all croco parameters but the aggregator
 LOG_ARGS="
     --log_tool wandb \
     --wandb_path ./ \
     --wandb_proj_name matching_dped \
-    --wandb_exp_name pho${CUDA}_TRAIN_dpedmsk_img224_bs${BATCH_SIZE}_lr1e4_croco_catseg_freezeCrocoAll \
+    --wandb_exp_name pho${CUDA}_TRAIN_dpedmsk_img224_bs${BATCH_SIZE}_lr1e3_croco_catseg_freezeCrocoAll_try1 \
 "
 ETC_ARGS="
 
@@ -43,41 +46,3 @@ CUDA_VISIBLE_DEVICES=${CUDA} python run_training.py 'croco' 'train_croco_static'
                                                                                     ${ETC_ARGS}
 
 
-
-    
-
-
-
-
-CUDA=6
-
-CUDA_VISIBLE_DEVICES=${CUDA} python run_training.py 'croco' 'train_croco_static' \
-    --dataset dped \
-    --apply_coco_msk \
-
-    --log_tool wandba \
-    --wandb_path ./ \
-    --wandb_proj_name matching_dped \
-    --tag pho_${CUDA}_dped_img224_bs2_croco_cats_swin_decoder_TEST \
-    --img_size 224 224 \
-    --batch_size 2 \
-    --softmaxattn \
-    --reciprocity \
-    --cost_agg cats_swin_decoder \
-    --cost_transformer \
-    --correlation \
-#  --multi_gpu \
-
-
-
-# CUDA_VISIBLE_DEVICES=${CUDA} python run_training.py 'croco' 'train_croco_static_cats' \
-#  --tag hierarchical_conv4d_cats_level_4stage_again \
-#  --img_size 224 224 \
-#  --softmaxattn \
-#  --reciprocity \
-#  --cost_agg hierarchical_conv4d_cats_level_4stage \
-#  --cost_transformer \
-#  --correlation \
-#  --hierarchical \
-#  --batch_size 1 \
-#  --cats_depth 2

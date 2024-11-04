@@ -298,8 +298,8 @@ class MultiscaleBlock(nn.Module):
         
         self.attn_multiscale = Attention(
             dim+embed_dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
-        self.attn_multiscale2 = Attention(
-            dim+embed_dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+        # self.attn_multiscale2 = Attention(
+        #     dim+embed_dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm1 = norm_layer(dim+embed_dim)
@@ -343,6 +343,29 @@ class MultiscaleBlock(nn.Module):
         x = x + self.drop_path(self.mlp2(self.norm4(x)))
         x = x.view(B, N, H, -1)
         
+
+        return x
+
+    def forward(self, x):
+        '''
+        Multi-level aggregation
+        '''
+        B, N, H, W = x.shape
+        if N == 1:
+            x = x.flatten(0, 1)
+            x = x + self.drop_path(self.attn(self.norm1(x)))
+            x = x + self.drop_path(self.mlp(self.norm2(x)))
+            return x.view(B, N, H, W)
+        
+        x = x.flatten(0, 1)
+        x = self.block_1(x)
+        x = self.block_2(x)
+
+        x = x.view(B, N, H, -1).transpose(1, 2).flatten(0, 1)   
+        x = x + self.drop_path(self.attn_multiscale(self.norm1(x)))
+        x = x.view(B, H, N, -1).transpose(1, 2).flatten(0, 1)
+        x = x + self.drop_path(self.mlp(self.norm2(x)))
+        x = x.view(B, N, H, -1)
 
         return x
 

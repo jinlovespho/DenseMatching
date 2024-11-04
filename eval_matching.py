@@ -265,13 +265,20 @@ if __name__ == "__main__":
 
     # JLP
     # parser.add_argument('--path_to_pre_trained_models', type=str, help='path to pre-trained models')
-    parser.add_argument('--croco_ckpt_path', type=str, help='path to pretrained crocoflow checkpoint')
+    parser.add_argument('--croco_ckpt', type=str, help='path to pretrained crocoflow checkpoint')
     parser.add_argument('--log_tool', type=str, help='log tool')
     parser.add_argument('--wandb_path', type=str, help='wandb path')
     parser.add_argument('--wandb_proj_name', type=str, help='wandb project name')
     parser.add_argument('--wandb_exp_name', type=str, help='wandb experiment name')
     parser.add_argument('--eval_img_size', nargs='+', type=int, help='evaluation image size')
     parser.add_argument('--wandb_log_img', action='store_true', help='log images to wandb')
+
+    # model
+    parser.add_argument('--output_flow_interp', action='store_true', help='output flow interpolation? default is False')
+    parser.add_argument('--output_ca_map', action='store_true', help='output confidence map? default is False')
+    parser.add_argument('--softmax_camap', action='store_true', help='softmax confidence map? default is False')
+    parser.add_argument('--correlation', action='store_true', help='compute correlation? default is False')
+    parser.add_argument('--reciprocity', action='store_true', help='compute reciprocity? default is False')
 
     args = parser.parse_args()
     local_optim_iter = int(args.local_optim_iter) if args.local_optim_iter else args.optim_iter

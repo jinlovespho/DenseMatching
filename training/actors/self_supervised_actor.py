@@ -17,6 +17,31 @@ from torchvision.utils import save_image
 import wandb
 import os 
 
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+def warp_image(image, flow):
+    """Warp image using flow field"""
+    B, C, H, W = image.size()
+    # Create mesh grid
+    xx = torch.arange(0, W).view(1, -1).repeat(H, 1)
+    yy = torch.arange(0, H).view(-1, 1).repeat(1, W)
+    xx = xx.view(1, 1, H, W).repeat(B, 1, 1, 1)
+    yy = yy.view(1, 1, H, W).repeat(B, 1, 1, 1)
+    grid = torch.cat((xx, yy), 1).float().to(device)
+        
+    # Add flow to grid
+    vgrid = grid + flow
+        
+    # Scale grid to [-1,1]
+    vgrid[:, 0, :, :] = 2.0 * vgrid[:, 0, :, :] / max(W-1, 1) - 1.0
+    vgrid[:, 1, :, :] = 2.0 * vgrid[:, 1, :, :] / max(H-1, 1) - 1.0
+        
+    # Reshape for grid_sample
+    vgrid = vgrid.permute(0, 2, 3, 1)
+        
+    # Warp
+    output = torch.nn.functional.grid_sample(image, vgrid, align_corners=True)
+    return output
 
 def resize_image(image, factor=32):
     H_32 = image.shape[-2] // factor * factor
@@ -315,10 +340,12 @@ class CrocoBasedActor(BaseActor):
         stats = stats_o
         stats['Loss_orig/total'] = loss_o.item()
         stats['Loss/total'] = loss.item()
+        stats['Etc/epoch'] = mini_batch['epoch']
+        stats['Etc/iter'] = mini_batch['iter']
 
         # Calculates validation stats
         if not training:
-            b, _, h_original, w_original = mini_batch['flow_map'].shape
+            b, _, h_original, w_original = mini_batch['flow_map'].shape # b 2 resized_h resized_w (224,224)
             # for index_reso_original in range(len(output_net_original)):
             if isinstance(output_net_original, dict):
                 EPE, PCK_1, PCK_3, PCK_5 = real_metrics(output_net_original['flow_estimates'][0],
@@ -343,55 +370,87 @@ class CrocoBasedActor(BaseActor):
             else:
                 stats['best_value'] = - stats['PCK_1_HNet_reso_{}x{}/EPE'.format(h_, w_)]
 
-        # plot images
-        if iter < self.nbr_images_to_plot:
-            training_or_validation = 'train' if training else 'val'
-            base_save_dir = os.path.join(mini_batch['settings'].env.workspace_dir,
-                                         mini_batch['settings'].project_path,
-                                         'plot', training_or_validation)
-            if not os.path.isdir(base_save_dir):
-                os.makedirs(base_save_dir)
-
-            if mini_batch['sparse'][0]:
-                output_net_256 = output_net_original
-                _ = plot_sparse_keypoints_GLUNet(base_save_dir, epoch, iter,
-                                                 mini_batch['source_image'], mini_batch['target_image'],
-                                                 mini_batch['source_image_256'], mini_batch['target_image'],
-                                                 mini_batch['flow_map'], mini_batch['flow_map'],
-                                                 output_net_original,
-                                                 output_net_256,
-                                                 normalization=True,
-                                                 uncertainty_info_original=output_net_original['uncertainty_estimates'][
-                                                     -1] if 'uncertainty_estimates' in list(output_net_original.keys()) else None,
-                                                 uncertainty_info_256=output_net_256['uncertainty_estimates'][-1]
-                                                 if 'uncertainty_estimates' in list(output_net_original.keys()) else None)
-                
-                ## if output_net_original type is dict
-                if isinstance(output_net_original, dict):
-                    _ = plot_during_training_with_uncertainty(base_save_dir, epoch, iter,
-                                            mini_batch['source_image'], mini_batch['target_image'],
-                                            mini_batch['source_image'],
-                                            mini_batch['target_image'],
-                                            mini_batch['flow_map'], mini_batch['flow_map'],
-                                            output_net=output_net_original['flow_estimates'][-1],
-                                            output_net_256=output_net_original['flow_estimates'][-1],
-                                            mask=mini_batch['mask'], mask_256=mini_batch['mask'],
-                                            uncertainty_info_original= None,
-                                            uncertainty_info_256= None)
-                else:
-                    _ = plot_during_training_with_uncertainty(base_save_dir, epoch, iter,
-                                            mini_batch['source_image'], mini_batch['target_image'],
-                                            mini_batch['source_image'],
-                                            mini_batch['target_image'],
-                                            mini_batch['flow_map'], mini_batch['flow_map'],
-                                            output_net=output_net_original,
-                                            output_net_256=output_net_original,
-                                            mask=mini_batch['mask'], mask_256=mini_batch['mask'],
-                                            uncertainty_info_original= None,
-                                            uncertainty_info_256= None)
-        # log stats to wandb
+        # breakpoint()
         if self.args.log_tool == 'wandb':
+            # log stats
             wandb.log(stats)
+
+            # log images 
+            if not training and iter < self.nbr_images_to_plot:
+                # =========================== log warped imgs to wandb (cursor) ==================================
+
+                b,c,h,w = mini_batch['source_image'].shape
+
+                # Warp source image using ground truth and estimated flows
+                warped_source_gt = warp_image(mini_batch['source_image'], mini_batch['flow_map'])
+                warped_source_est = warp_image(mini_batch['source_image'], output_net_original)
+                
+                # Create grid of images for visualization
+                img_grid = torch.cat([
+                    torch.cat([mini_batch['source_image'][0], mini_batch['target_image'][0]], dim=2),
+                    torch.cat([warped_source_gt[0], warped_source_est[0]], dim=2)
+                ], dim=1)
+                
+                # Log to wandb
+                wandb.log({
+                    f"DPED_vis_warped_flow/img_{iter}": wandb.Image(
+                        img_grid.cpu(),
+                        caption=f"Top: Source | Target, Bottom: Warped (GT) | Warped (Est), Img_size: {h}x{w}"
+                    )
+                })
+            # =========================== Cursor ==================================
+
+
+
+
+
+
+
+            # training_or_validation = 'train' if training else 'val'
+            # base_save_dir = os.path.join(mini_batch['settings'].env.workspace_dir,
+            #                              mini_batch['settings'].project_path,
+            #                              'plot', training_or_validation)
+            # if not os.path.isdir(base_save_dir):
+            #     os.makedirs(base_save_dir)
+
+            # if mini_batch['sparse'][0]:
+            #     output_net_256 = output_net_original
+            #     _ = plot_sparse_keypoints_GLUNet(base_save_dir, epoch, iter,
+            #                                      mini_batch['source_image'], mini_batch['target_image'],
+            #                                      mini_batch['source_image_256'], mini_batch['target_image'],
+            #                                      mini_batch['flow_map'], mini_batch['flow_map'],
+            #                                      output_net_original,
+            #                                      output_net_256,
+            #                                      normalization=True,
+            #                                      uncertainty_info_original=output_net_original['uncertainty_estimates'][
+            #                                          -1] if 'uncertainty_estimates' in list(output_net_original.keys()) else None,
+            #                                      uncertainty_info_256=output_net_256['uncertainty_estimates'][-1]
+            #                                      if 'uncertainty_estimates' in list(output_net_original.keys()) else None)
+                
+            #     ## if output_net_original type is dict
+            #     if isinstance(output_net_original, dict):
+            #         _ = plot_during_training_with_uncertainty(base_save_dir, epoch, iter,
+            #                                 mini_batch['source_image'], mini_batch['target_image'],
+            #                                 mini_batch['source_image'],
+            #                                 mini_batch['target_image'],
+            #                                 mini_batch['flow_map'], mini_batch['flow_map'],
+            #                                 output_net=output_net_original['flow_estimates'][-1],
+            #                                 output_net_256=output_net_original['flow_estimates'][-1],
+            #                                 mask=mini_batch['mask'], mask_256=mini_batch['mask'],
+            #                                 uncertainty_info_original= None,
+            #                                 uncertainty_info_256= None)
+            #     else:
+            #         _ = plot_during_training_with_uncertainty(base_save_dir, epoch, iter,
+            #                                 mini_batch['source_image'], mini_batch['target_image'],
+            #                                 mini_batch['source_image'],
+            #                                 mini_batch['target_image'],
+            #                                 mini_batch['flow_map'], mini_batch['flow_map'],
+            #                                 output_net=output_net_original,
+            #                                 output_net_256=output_net_original,
+            #                                 mask=mini_batch['mask'], mask_256=mini_batch['mask'],
+            #                                 uncertainty_info_original= None,
+            #                                 uncertainty_info_256= None)
+            
 
         return loss, stats
     

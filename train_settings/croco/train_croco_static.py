@@ -104,7 +104,7 @@ def run(settings, args):
     else:
         raise NotImplementedError(f'Model {args.model} not implemented')
     
-
+    print('----------------------------------------------------------------') 
     # 3-2. Set Trainable Parameters
     if args.freeze == 'croco_enc':
         print('Freezing encoder parameters!')
@@ -116,8 +116,13 @@ def run(settings, args):
     elif args.freeze == 'croco_all':
         print('Freezing all croco parameters!')
         for name, param in model.named_parameters():
-            if 'cats_swin_decoder' in name:
+            # for croco_catseg
+            if 'cats_swin_decoder' in name: 
                 param.requires_grad = True
+            # for crocoflow
+            elif 'head' in name:    
+                param.requires_grad = True
+
             else:
                 param.requires_grad = False
     else:
@@ -154,7 +159,7 @@ def run(settings, args):
     loss_module = MultiScaleFlow(level_weights=weights_level_loss, loss_function=objective, downsample_gt_flow=True)
 
     # 6. Define actor
-    GLUNetActor = CrocoBasedActor(model, objective=loss_module,batch_processing=batch_processing, args=args)
+    GLUNetActor = CrocoBasedActor(model, objective=loss_module,batch_processing=batch_processing, nbr_images_to_plot=6, args=args)
     
 
     # 7. Define Optimizer            
@@ -176,8 +181,9 @@ def run(settings, args):
                                          milestones=settings.scheduler_steps,
                                          gamma=0.5)
 
+    train_val_loader = [train_loader, val_loader]
     # 9. Define Trainer
-    trainer = MatchingTrainer(GLUNetActor, [train_loader, val_loader], optimizer, settings, lr_scheduler=scheduler, args=args)
+    trainer = MatchingTrainer(GLUNetActor, train_val_loader, optimizer, settings, lr_scheduler=scheduler, args=args)
     trainer.train(settings.n_epochs, load_latest=False, fail_safe=True)
 
 

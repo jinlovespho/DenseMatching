@@ -15,12 +15,11 @@ def load_network(net, checkpoint_path=None, **kwargs):
     """Loads a network checkpoint file.
     args:
         net: network architecture
-        checkpoint_path
+        checkpoint_path: ~~~.pth.tar
     outputs:
         net: loaded network
     """
-
-    if not os.path.isfile(checkpoint_path):
+    if not os.path.isfile(checkpoint_path): 
         raise ValueError('The checkpoint that you chose does not exist, {}'.format(checkpoint_path))
 
     # Load checkpoint
@@ -29,7 +28,13 @@ def load_network(net, checkpoint_path=None, **kwargs):
     if 'state_dict' in checkpoint_dict:
         checkpoint_dict = checkpoint_dict['state_dict']
 
-    net.load_state_dict(checkpoint_dict, strict=False)
+    msg=net.load_state_dict(checkpoint_dict, strict=False)
+    print(msg)
+    print('---------------------------------------')
+    print('Weight Loaded from .tar !')
+    print('missing keys: ', msg.missing_keys) # model 에는 있는데 ckpt 에는 없는 것들
+    print('unexpected keys: ', msg.unexpected_keys) # ckpt 에는 있는데 model 에는 없는 것들
+    print('---------------------------------------')
     return net
 
 
@@ -216,7 +221,7 @@ def select_model(model_name, pre_trained_model_type, args, global_optim_iter, lo
         # EPE after applying softargmax.
         network = CATs(forward_pass_strategy='flow_prediction', inference_strategy='softargmax')
     # JLP
-    elif 'crocoflow' == model_name:
+    elif model_name == 'crocoflow':
         from models.orig_croco.models.croco_downstream import CroCoDownstreamBinocular
         from models.orig_croco.models.head_downstream import PixelwiseTaskWithDPT
         from models.orig_croco.models.pos_embed import interpolate_pos_embed
@@ -224,7 +229,7 @@ def select_model(model_name, pre_trained_model_type, args, global_optim_iter, lo
         estimate_uncertainty = True
         weights_already_loaded = True
 
-        model_path = args.croco_ckpt_path
+        model_path = args.croco_ckpt
 
         print('Loading croco model from: ', model_path)
         assert os.path.isfile(model_path)
@@ -257,11 +262,9 @@ def select_model(model_name, pre_trained_model_type, args, global_optim_iter, lo
         network.eval()
         network = network.to(device)
 
-        print('crocoflow load_weight msg: ', msg)
+        print('CROCOFLOW WEIGHT WELL LOADED: ', msg)
         
-        
-
-    elif 'croco_hierarchical_conv4d_cats_level_4stage' == model_name:
+    elif model_name == 'croco_hierarchical_conv4d_cats_level_4stage':
         from models.croco.croco import CroCoNet
         from models.croco.croco_downstream import croco_args_from_ckpt
 
@@ -269,11 +272,8 @@ def select_model(model_name, pre_trained_model_type, args, global_optim_iter, lo
         weights_already_loaded = False
         
         breakpoint()
-        ckpt = torch.load(args.croco_ckpt_path,'cpu')
+        ckpt = torch.load(args.croco_ckpt,'cpu')
         croco_args = croco_args_from_ckpt(ckpt)
-
-        # args.cost_agg = 
-
 
         croco_args['img_size'] = args.eval_img_size #((args.image_shape[0]//32)*32,(args.image_shape[1]//32)*32)
         croco_args['args'] = args
@@ -281,27 +281,42 @@ def select_model(model_name, pre_trained_model_type, args, global_optim_iter, lo
         # msg1=network.load_state_dict(ckpt['model'], strict=False)
         # print('WEIGHTS WELL LOADED? ', msg1)
     
-    elif 'ADD_MODEL' in model_name:
-        estimate_uncertainty = True
-        weights_already_loaded = True
+    elif model_name == 'croco_catseg':
+        from models.croco.croco import CroCoNet
+        from models.croco.croco_downstream import croco_args_from_ckpt
+
+        weights_already_loaded=False
+        estimate_uncertainty = False
+
+        ckpt = torch.load(args.croco_ckpt, 'cpu')
+        croco_args = croco_args_from_ckpt(ckpt)
+        croco_args['img_size'] = args.eval_img_size
+        croco_args['args'] = args
+        model = CroCoNet(**croco_args)
+        msg=model.load_state_dict(ckpt['model'], strict=False)
+        # print('missing keys: ', msg.missing_keys) # model 에는 있는데 ckpt 에는 없는 것들
+        # print('unexpected keys: ', msg.unexpected_keys) # ckpt 에는 있는데 model 에는 없는 것들
+        # print('CROCO_CATSEG WEIGHT WELL LOADED: ', msg)
+        model.eval()
+        network = model.to(device)
 
     else:
-        raise NotImplementedError('the model that you chose does not exist: {}'.format(model_name))
+        print('ERROR!!!! Model Name: ', model_name)
 
 
+    # breakpoint()
     if not weights_already_loaded:
-        if path_to_pre_trained_models.endswith('.pth') or path_to_pre_trained_models.endswith('.pth.tar') \
-                or path_to_pre_trained_models.endswith('.pt'):
+        if path_to_pre_trained_models.endswith('.pth') or path_to_pre_trained_models.endswith('.pth.tar') or path_to_pre_trained_models.endswith('.pt'):    # true
             # if the path already corresponds to a checkpoint path, we use it directly
             checkpoint_fname = path_to_pre_trained_models
-        else:
+        else:   # false
             # it is the path to the directory containing all checkpoints.
             checkpoint_fname = osp.join(path_to_pre_trained_models, model_name + '_{}'.format(pre_trained_model_type)
                                         + '.pth')
             if not os.path.exists(checkpoint_fname):
                 checkpoint_fname = checkpoint_fname + '.tar'
 
-        if not os.path.exists(checkpoint_fname):
+        if not os.path.exists(checkpoint_fname):    # false
             raise ValueError('The checkpoint that you chose does not exist, {}'.format(checkpoint_fname))
 
         network = load_network(network, checkpoint_path=checkpoint_fname)

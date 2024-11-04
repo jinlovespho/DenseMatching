@@ -18,6 +18,7 @@ from utils_flow.pixel_wise_mapping import warp
 # JLP
 import wandb
 import torch.nn.functional as F
+from torchvision.utils import save_image
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -328,16 +329,27 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
         source_img = source_img.float().to(device) # 1 3 h w
         target_img = target_img.float().to(device) # 1 3 h w
 
-        if args.model == 'crocoflow':
+        # crocoflow, croco_catseg, 
+        if 'croco' in args.model:   
             source_img = source_img / 255.0
             target_img = target_img / 255.0
 
+            # for crocoflow as it predicts uncertainty
             if estimate_uncertainty:
                 output = network(target_img, source_img)
                 flow_est = output[:,:-1,:,:]
                 conf = output[:,-1,:,:]
+            
+            # for other croco models that doesnt predict uncertainty
             else:
-                flow_est = network(target_img, source_img)
+                if args.model =='croco_catseg':
+                    output_flow = network(target_img, source_img)
+                    # output_flow = [fine_flow, coarse_flow] 
+                    flow_est = output_flow[0]   # fine_flow
+                    # flow_est = output_flow[1]   # coarse_flow
+                
+                elif args.model == 'future croco models':
+                    pass
 
         else:
             if estimate_uncertainty:
@@ -359,20 +371,51 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
                 warped_source_gt = warp_image(source_img, flow_gt)
                 warped_source_est = warp_image(source_img, flow_est)
                 
+                # Apply mask to warped estimated flow
+                warped_source_est_masked = warped_source_est * mask_valid.unsqueeze(1)
+
                 # Create grid of images for visualization
                 img_grid = torch.cat([
                     torch.cat([source_img[0], target_img[0]], dim=2),
-                    torch.cat([warped_source_gt[0], warped_source_est[0]], dim=2)
+                    torch.cat([warped_source_gt[0], warped_source_est[0]], dim=2),
+                    torch.cat([mask_valid[0].unsqueeze(0).repeat(3,1,1), # Repeat mask 3 times for RGB channels
+                             warped_source_est_masked[0]], dim=2) # Show masked warped estimate in last column
                 ], dim=1)
+                
+                # Save image grid locally
+                # save_image(img_grid.cpu(), f'./tmp.png')
                 
                 # Log to wandb
                 wandb.log({
                     f"vis_warped_flow_{curr_id+1}/img_{i_batch}": wandb.Image(
                         img_grid.cpu(),
-                        caption=f"Top: Source | Target, Bottom: Warped (GT) | Warped (Est), Img_size: {h}x{w}"
+                        caption=f"Top: Source | Target, Middle: Warped (GT) | Warped (Est), Bottom: Valid Mask | Masked Warped (Est), Img_size: {h}x{w}"
                     )
                 })
             # =========================== Cursor ==================================
+
+        # # =========================== log warped imgs to wandb (cursor) ==================================
+        # if args.log_tool == 'wandb' and args.wandb_log_img and curr_id < 5:
+        #     # Log warped images to wandb for first few batches
+        #     if i_batch < wandb_num_log_img and args.log_tool is not None:
+        #         # Warp source image using ground truth and estimated flows
+        #         warped_source_gt = warp_image(source_img, flow_gt)
+        #         warped_source_est = warp_image(source_img, flow_est)
+                
+        #         # Create grid of images for visualization
+        #         img_grid = torch.cat([
+        #             torch.cat([source_img[0], target_img[0]], dim=2),
+        #             torch.cat([warped_source_gt[0], warped_source_est[0]], dim=2)
+        #         ], dim=1)
+                
+        #         # Log to wandb
+        #         wandb.log({
+        #             f"vis_warped_flow_{curr_id+1}/img_{i_batch}": wandb.Image(
+        #                 img_grid.cpu(),
+        #                 caption=f"Top: Source | Target, Bottom: Warped (GT) | Warped (Est), Img_size: {h}x{w}"
+        #             )
+        #         })
+        #     # =========================== Cursor ==================================
 
         flow_est = flow_est.permute(0, 2, 3, 1)[mask_valid]
         flow_gt = flow_gt.permute(0, 2, 3, 1)[mask_valid]
@@ -385,7 +428,7 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
         pck_3_list.append(epe.le(3.0).float().mean().item())
         pck_5_list.append(epe.le(5.0).float().mean().item())
 
-        if args.model == 'crocoflow':
+        if 'crocoflow' in args.model:
             pass
         else:
             if estimate_uncertainty:

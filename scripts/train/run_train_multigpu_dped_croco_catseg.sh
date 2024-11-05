@@ -28,7 +28,7 @@ MODEL_ARGS="
 # --freeze croco_enc    # freeze only croco encoder
 # --freeze croco_all    # freeze all croco parameters but the aggregator
 LOG_ARGS="
-    --log_tool wandba \
+    --log_tool wandb \
     --wandb_path ./ \
     --wandb_proj_name matching_dped \
     --wandb_exp_name pho${CUDA}_ddp_test \
@@ -38,7 +38,7 @@ ETC_ARGS="
 "
 
 CUDA_VISIBLE_DEVICES=${CUDA} \
-    torchrun --standalone --nproc_per_node=${NPROC_PER_NODE} run_training.py 'croco' 'train_croco_static_ddp' \
+    torchrun --standalone --nproc_per_node=${NPROC_PER_NODE} run_training.py 'croco' 'train_croco_static_multigpu' \
     ${DATA_ARGS} \
     ${TRAIN_ARGS} \
     ${MODEL_ARGS} \

@@ -316,7 +316,7 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
     dict_list_uncertainties = {}
 
     # number of images to log to wandb
-    wandb_num_log_img = 8
+    wandb_num_log_img = 16
 
     for i_batch, mini_batch in pbar:
         source_img = mini_batch['source_image'] # source, target, flow_gt, mask_valid ALL resized to args.eval_img_size

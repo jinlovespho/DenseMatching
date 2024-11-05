@@ -158,15 +158,16 @@ def run(settings, args):
                 param.requires_grad = False
     else:
         print('Full Fine Tuning!')
-    
+
+
+    # 3-3. Show params and trainable params
+    tot_params = sum(p.numel() for p in model.parameters()) 
+    tot_model_size = sum(p.numel()*p.element_size() for p in model.parameters()) 
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    trainable_model_size = sum(p.numel()*p.element_size() for p in model.parameters() if p.requires_grad)
     if dist.get_rank() == 0:
-        # 3-3. Show params and trainable params
         print('----------------------------------------------------------------')   
-        tot_params = sum(p.numel() for p in model.parameters()) 
-        tot_model_size = sum(p.numel()*p.element_size() for p in model.parameters()) 
         print(f"TOTAL PARAMS: {tot_params/1e6:.2f} M, TOTAL MODEL SIZE: {tot_model_size/1e6:.2f} MB")
-        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        trainable_model_size = sum(p.numel()*p.element_size() for p in model.parameters() if p.requires_grad)
         print(f"TRAINABLE PARAMS: {trainable_params/1e6:.2f} M, TRAINABLE MODEL SIZE: {trainable_model_size/1e6:.2f} MB")
         print('----------------------------------------------------------------')
 

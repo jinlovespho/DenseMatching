@@ -41,7 +41,8 @@ class BaseTrainer:
         if self.device is None:
             self.device = torch.device("cuda:0" if torch.cuda.is_available() and settings.use_gpu else "cpu")
 
-        self.actor.to(self.device)  # puts the network to GPU
+        if not self.args.multi_gpu:
+            self.actor.to(self.device)  # puts the network to GPU
 
     def update_settings(self, settings=None):
         """Updates the trainer settings. Must be called to update internal settings."""

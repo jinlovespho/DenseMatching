@@ -71,6 +71,9 @@ class MatchingTrainer(BaseTrainer):
         torch.set_grad_enabled(loader.training)
 
         self._init_timing()
+        
+        if loader.training and hasattr(loader, 'sampler') and hasattr(loader.sampler, 'set_epoch'):
+            loader.sampler.set_epoch(self.epoch)
 
         # pbar = tqdm(enumerate(loader), total=len(loader))
         for i, data in enumerate(loader):
@@ -101,17 +104,15 @@ class MatchingTrainer(BaseTrainer):
 
                 del loss
 
-            if self.args.multi_gpu and dist.get_rank() == 0:
-                # update statistics
-                batch_size = data['source_image'].shape[0]
-                self._update_stats(stats, batch_size, loader)
-                self._print_stats(i, loader, batch_size)
+            if self.args.multi_gpu:
+                if dist.get_rank() == 0:
+                    batch_size = data['source_image'].shape[0]
+                    self._update_stats(stats, batch_size, loader)
+                    self._print_stats(i, loader, batch_size)
             else:
-                # update statistics
                 batch_size = data['source_image'].shape[0]
                 self._update_stats(stats, batch_size, loader)
                 self._print_stats(i, loader, batch_size)
-
 
         if not loader.training:
             # update the current best value, for each epoch, can decide what is the best value.
@@ -142,10 +143,10 @@ class MatchingTrainer(BaseTrainer):
             if self.epoch % loader.epoch_interval == 0:
                 self.cycle_dataset(loader)
 
-
-        if self.args.multi_gpu and dist.get_rank() == 0:
-            self._stats_new_epoch()
-            self._write_tensorboard()
+        if self.args.multi_gpu:
+            if dist.get_rank() == 0:
+                self._stats_new_epoch()
+                self._write_tensorboard()
         else:
             self._stats_new_epoch()
             self._write_tensorboard()

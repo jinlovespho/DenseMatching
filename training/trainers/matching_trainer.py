@@ -7,6 +7,24 @@ import torch
 import time
 import gc
 
+import torch.distributed as dist
+
+import sys
+import pdb
+
+class ForkedPdb(pdb.Pdb):
+    """
+    PDB Subclass for debugging multi-processed code
+    Suggested in: https://stackoverflow.com/questions/4716533/how-to-attach-debugger-to-a-python-subproccess
+    """
+    def interaction(self, *args, **kwargs):
+        _stdin = sys.stdin
+        try:
+            sys.stdin = open('/dev/stdin')
+            pdb.Pdb.interaction(self, *args, **kwargs)
+        finally:
+            sys.stdin = _stdin
+
 
 class MatchingTrainer(BaseTrainer):
     """Training for matching networks. """
@@ -21,7 +39,7 @@ class MatchingTrainer(BaseTrainer):
             lr_scheduler - Learning rate scheduler
             make_initial_validation - bool, make initial validation before first training epoch ?
         """
-        super().__init__(actor, loaders, optimizer, settings, lr_scheduler, make_initial_validation)
+        super().__init__(actor, loaders, optimizer, settings, lr_scheduler, make_initial_validation, args)
 
         self._set_default_settings()  # set default settings when no values are already set
 
@@ -69,7 +87,9 @@ class MatchingTrainer(BaseTrainer):
             if loader.training:
                 grad_is_nan = False
                 self.optimizer.zero_grad()
+                # breakpoint()
                 loss.backward()
+
                 for param in self.actor.net.parameters():
                     if getattr(param, 'grad', None) is not None and ~torch.isfinite(param.grad).all():
                         print('Epoch {}, batch {}, Grad was NAN!!!'.format(self.epoch, i))
@@ -81,10 +101,17 @@ class MatchingTrainer(BaseTrainer):
 
                 del loss
 
-            # update statistics
-            batch_size = data['source_image'].shape[0]
-            self._update_stats(stats, batch_size, loader)
-            self._print_stats(i, loader, batch_size)
+            if self.args.multi_gpu and dist.get_rank() == 0:
+                # update statistics
+                batch_size = data['source_image'].shape[0]
+                self._update_stats(stats, batch_size, loader)
+                self._print_stats(i, loader, batch_size)
+            else:
+                # update statistics
+                batch_size = data['source_image'].shape[0]
+                self._update_stats(stats, batch_size, loader)
+                self._print_stats(i, loader, batch_size)
+
 
         if not loader.training:
             # update the current best value, for each epoch, can decide what is the best value.
@@ -102,6 +129,11 @@ class MatchingTrainer(BaseTrainer):
         for loader in self.loaders:
             # do one cycle of training dataset
 
+            # ForkedPdb().set_trace()
+            # for ddp training
+            # if self.args.multi_gpu and loader.name == 'train':
+            #     loader.sampler.set_epoch(self.epoch)
+
             # resample the training dataset if dataset_callback_fn exists
             if loader.name == 'train' and self.epoch > 1 and not self.just_started and self.settings.dataset_callback_fn:
                 if hasattr(loader.dataset, self.settings.dataset_callback_fn):
@@ -110,8 +142,14 @@ class MatchingTrainer(BaseTrainer):
             if self.epoch % loader.epoch_interval == 0:
                 self.cycle_dataset(loader)
 
-        self._stats_new_epoch()
-        self._write_tensorboard()
+
+        if self.args.multi_gpu and dist.get_rank() == 0:
+            self._stats_new_epoch()
+            self._write_tensorboard()
+        else:
+            self._stats_new_epoch()
+            self._write_tensorboard()
+
         torch.cuda.empty_cache()
         gc.collect()
 

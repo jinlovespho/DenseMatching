@@ -9,7 +9,7 @@ class BaseTrainer:
     """Base trainer class. Contains functions for training and saving/loading checkpoints.
     Trainer classes should inherit from this one and overload the train_epoch function."""
 
-    def __init__(self, actor, loaders, optimizer, settings, lr_scheduler=None, make_initial_validation=False):
+    def __init__(self, actor, loaders, optimizer, settings, lr_scheduler=None, make_initial_validation=False, args=None):
         """
         args:
             actor - The actor for training the network
@@ -25,6 +25,7 @@ class BaseTrainer:
         self.lr_scheduler = lr_scheduler
         self.loaders = loaders
         self.make_initial_validation = make_initial_validation
+        self.args = args
         # if we want to first evaluate on validation dataset, after loading the weights for instance
 
         self.update_settings(settings)
@@ -131,7 +132,7 @@ class BaseTrainer:
     def save_checkpoint(self, name=None):
         """Saves a checkpoint of the network and other variables."""
 
-        net = self.actor.net.module if multigpu.is_multi_gpu(self.actor.net) else self.actor.net
+        net = self.actor.net.module if self.args.multi_gpu else self.actor.net
 
         actor_type = type(self.actor).__name__
         net_type = type(net).__name__

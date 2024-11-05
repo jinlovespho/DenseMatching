@@ -19,6 +19,8 @@ from utils_flow.pixel_wise_mapping import warp
 import wandb
 import torch.nn.functional as F
 from torchvision.utils import save_image
+from torchvision import transforms
+
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -343,11 +345,14 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
             # for other croco models that doesnt predict uncertainty
             else:
                 if args.model =='croco_catseg':
-                    output_flow = network(target_img, source_img)
-                    # output_flow = [fine_flow, coarse_flow] 
-                    flow_est = output_flow[0]   # fine_flow
-                    # flow_est = output_flow[1]   # coarse_flow
-                
+                    if args.dense_zoom_in:
+                        flow_est, uncertainty_est = network.zoom_in_batch(source_img, target_img, zoom_ratio=args.dense_zoom_ratio, optimize=False, homo_only=False, batch_size=b)
+                    else:
+                        output_flow = network(target_img, source_img)
+                        # output_flow = [fine_flow, coarse_flow] 
+                        flow_est = output_flow[0]   # fine_flow
+                        # flow_est = output_flow[1]   # coarse_flow
+
                 elif args.model == 'future croco models':
                     pass
 
@@ -368,7 +373,7 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
             # Log warped images to wandb for first few batches
             if i_batch < wandb_num_log_img and args.log_tool is not None:
                 # Warp source image using ground truth and estimated flows
-                warped_source_gt = warp_image(source_img, flow_gt)
+                warped_source_gt = warp_image(source_img, flow_gt)  
                 warped_source_est = warp_image(source_img, flow_est)
                 
                 # Apply mask to warped estimated flow
@@ -377,7 +382,7 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
                 # Create grid of images for visualization
                 img_grid = torch.cat([
                     torch.cat([source_img[0], target_img[0]], dim=2),
-                    torch.cat([warped_source_gt[0], warped_source_est[0]], dim=2),
+                    torch.cat([warped_source_gt[0], warped_source_est[0]], dim=2),  # warped_source는 최종적으로 Tgt이미지가 나와야하는 것!
                     torch.cat([mask_valid[0].unsqueeze(0).repeat(3,1,1), # Repeat mask 3 times for RGB channels
                              warped_source_est_masked[0]], dim=2) # Show masked warped estimate in last column
                 ], dim=1)

@@ -279,6 +279,11 @@ if __name__ == "__main__":
     parser.add_argument('--softmax_camap', action='store_true', help='softmax confidence map? default is False')
     parser.add_argument('--correlation', action='store_true', help='compute correlation? default is False')
     parser.add_argument('--reciprocity', action='store_true', help='compute reciprocity? default is False')
+    parser.add_argument('--model_img_size', nargs='+', type=int, help='model image size')
+
+    # inference 
+    parser.add_argument('--dense_zoom_in', action='store_true', help='dense zoom in default is False')
+    parser.add_argument('--dense_zoom_ratio', nargs='+', type=int, help='dense zoom ratio')
 
     args = parser.parse_args()
     local_optim_iter = int(args.local_optim_iter) if args.local_optim_iter else args.optim_iter

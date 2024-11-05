@@ -16,6 +16,12 @@ from models.croco.blocks import Block, DecoderBlock, PatchEmbed
 from models.croco.pos_embed import get_2d_sincos_pos_embed, RoPE2D 
 from models.croco.masking import RandomMask
 
+from torchvision import transforms
+from utils_flow.pixel_wise_mapping import warp
+import torch.nn.functional as F
+from einops import rearrange
+
+
 
 class CroCoNet(nn.Module):
 
@@ -43,6 +49,7 @@ class CroCoNet(nn.Module):
         self.reciprocity = args.reciprocity
         self.output_ca_map = args.output_ca_map
         self.softmax_camap = args.softmax_camap
+        self.img_size = img_size
 
         if self.model == 'croco_catseg':
             from models.croco.cats_swin_decoder import CATs_SWIN_Decoder
@@ -247,6 +254,145 @@ class CroCoNet(nn.Module):
         imgs = x.reshape(shape=(x.shape[0], channels, h * patch_size, h * patch_size))
         return imgs
 
+    def resize_flow(self, flow, size):
+        flow = flow.clone()
+        h_o, w_o = flow.size()[-2:]
+        h, w = size[-2:]
+        
+        ratio_h = float(h - 1)/float(h_o - 1)
+        ratio_w = float(w - 1)/float(w_o - 1)
+        flow[:, 0, :, :] *= ratio_w
+        flow[:, 1, :, :] *= ratio_h
+
+        flow = F.interpolate(flow, size=(h, w), mode='bilinear', align_corners=True)
+        return flow
+    
+    def tile_image(self, img, tile_shape=(128, 128)):
+        """
+        Arguments:
+            img: tensor shape of (3, 512, 512)
+            tile_shape: tuple
+        """
+        _, H, W = img.shape
+        tile = rearrange(img, 'C (T1 H) (T2 W) -> (T1 T2) C H W', H=tile_shape[0], W=tile_shape[1])
+        return tile
+
+    def tile_to_image(self, tile):
+        T = int((tile.shape[0]) ** 0.5)
+        return rearrange(tile, '(T1 T2) C H W -> C (T1 H) (T2 W)', T1=T, T2=T)
+
+    def estimate_flow(self, target_img, source_img):
+        output = self.forward(source_img, target_img)
+        if self.model == 'croco_catseg':
+            flow_est = output[0]  # fine flow
+        else:
+            flow_est = output
+        return flow_est
+
+    def zoom_in_batch(self, src_img, trg_img, zoom_ratio=(2,3), optimize=False, homo_only=False, batch_size=24):
+        flow_list = []
+        uncertainty_list = []
+        '''
+            src_img: b 3 h w 일 때 -> tmp=src_img.split(1) -> b개의 3 h w 이미지가 나옴 -> 즉 len(tmp)=b
+        '''
+        for src, trg in zip(src_img.split(1), trg_img.split(1)):   
+            if homo_only:
+                flow, _ = self.estimate_flow_and_confidence_map_(
+                    src, trg, inference_parameters={
+                        'mask_type': 'cyclic_consistency_error_below_10',
+                        'multi_stage_type': 'homography_only',
+                        'min_nbr_points': 10000,
+                    })
+            elif optimize:
+                flow, uncertainty = self.zoom_in_with_optimize(src, trg, zoom_ratio, max_num_iter=100, batch_size=batch_size)
+            else:
+                flow, uncertainty = self.zoom_fix_multiscale(src, trg, zoom_ratio, batch_size=batch_size)
+            flow_list.append(flow)
+            uncertainty_list.append(uncertainty)
+        return torch.cat(flow_list, dim=0), torch.cat(uncertainty_list, dim=0)
+    
+
+    def zoom_fix_multiscale(self, src_img, trg_img, zoom_ratio_list=(3, 4, 5), batch_size=24):
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        src_img = src_img.to(device)
+        trg_img = trg_img.to(device)
+
+        src_img_resized = transforms.functional.resize(src_img, size=self.img_size)
+        trg_img_resized = transforms.functional.resize(trg_img, size=self.img_size)
+        with torch.no_grad():
+            est_flow = self.estimate_flow(src_img_resized, trg_img_resized)
+            est_flow_rev = self.estimate_flow(trg_img_resized, src_img_resized)
+
+        est_flow = self.resize_flow(est_flow, trg_img.shape)
+        est_flow = self.resize_flow(est_flow, trg_img.shape)
+        est_flow_rev = self.resize_flow(est_flow_rev, src_img.shape)
+        warped_src = warp(src_img.float(), est_flow)
+        warped_trg = warp(trg_img.float(), est_flow_rev)
+
+        final_flow_list = []
+        final_flow_rev_list = []
+
+        final_flow_list.append(est_flow)
+        final_flow_rev_list.append(est_flow_rev)
+
+        for zoom_ratio in zoom_ratio_list:
+            warped_src_resized = F.interpolate(warped_src.float(), size=self.img_size[0] * zoom_ratio, mode='bilinear', align_corners=True)
+            warped_src_tile = self.tile_image(warped_src_resized[0], tile_shape=(self.img_size[0], self.img_size[0]))
+
+            resized_trg = F.interpolate(trg_img.float(), size=self.img_size[0] * zoom_ratio, mode='bilinear', align_corners=True)
+            trg_tile = self.tile_image(resized_trg[0], tile_shape=(self.img_size[0], self.img_size[0]))
+
+
+            est_flow_tile_list = []
+            for s, t in zip(warped_src_tile.split(batch_size), trg_tile.split(batch_size)):
+                with torch.no_grad():
+                    est_flow_tile = self.estimate_flow(s.to('cuda'), t.to('cuda'))
+                    est_flow_tile_list.append(est_flow_tile)
+
+            est_flow_tile = torch.cat(est_flow_tile_list, dim=0)
+            est_flow_zoom = self.tile_to_image(est_flow_tile)
+
+            est_flow_zoom_origsize = self.resize_flow(est_flow_zoom[None], trg_img.shape)
+            warped_flow = warp(est_flow, est_flow_zoom_origsize)
+            final_flow = warped_flow + est_flow_zoom_origsize
+
+            final_flow_list.append(final_flow)
+
+        for zoom_ratio in zoom_ratio_list:
+            warped_trg_resized = F.interpolate(warped_trg.float(), size=self.img_size[0] * zoom_ratio, mode='bilinear', align_corners=True)
+            warped_trg_tile = self.tile_image(warped_trg_resized[0], tile_shape=(self.img_size[0], self.img_size[0]))
+
+            resized_src = F.interpolate(src_img.float(), size=self.img_size[0] * zoom_ratio, mode='bilinear', align_corners=True)
+            src_tile = self.tile_image(resized_src[0], tile_shape=(self.img_size[0], self.img_size[0]))
+
+
+            est_flow_tile_list = []
+            for t, s in zip(warped_trg_tile.split(batch_size), src_tile.split(batch_size)):
+                with torch.no_grad():
+                    est_flow_tile = self.estimate_flow(t.to('cuda'), s.to('cuda'))
+                    est_flow_tile_list.append(est_flow_tile)
+
+            est_flow_tile = torch.cat(est_flow_tile_list, dim=0)
+            est_flow_zoom = self.tile_to_image(est_flow_tile)
+
+            est_flow_zoom_origsize = self.resize_flow(est_flow_zoom[None], src_img.shape)
+            warped_flow = warp(est_flow_rev, est_flow_zoom_origsize)
+            final_flow = warped_flow + est_flow_zoom_origsize
+
+            final_flow_rev_list.append(final_flow)
+
+        final_flow_list = torch.cat(final_flow_list, dim=0)
+        final_flow_rev_list = torch.cat(final_flow_rev_list, dim=0)
+
+        final_confidence_list = torch.norm(final_flow_list + warp(final_flow_rev_list, final_flow_list), dim=1, p=2, keepdim=True)
+        final_confidence_list_rev = torch.norm(final_flow_rev_list + warp(final_flow_list, final_flow_rev_list), dim=1, p=2, keepdim=True)
+
+        final_flow = torch.gather(final_flow_list, dim=0, index=final_confidence_list.min(dim=0, keepdim=True)[1].repeat(1, 2, 1, 1))
+        final_flow_rev = torch.gather(final_flow_rev_list, dim=0, index=final_confidence_list_rev.min(dim=0, keepdim=True)[1].repeat(1, 2, 1, 1))
+
+        return final_flow, torch.norm(final_flow + warp(final_flow_rev, final_flow), dim=1, p=2, keepdim=True)
+
+
     def forward(self, img_target, img_source, mode=None):
         """
         img1: tensor of size B x 3 x img_size x img_size
@@ -291,6 +437,7 @@ class CroCoNet(nn.Module):
             if self.reciprocity:
                 decfeat_source = [feat.detach() for feat in decfeat_source]
                 output_flow = self.cats_swin_decoder(attn_map, decfeat, (H,W), feat_source, feat_target, attn_map_source, decfeat_source, img_target, img_source, appearance_feature = [feat_targets[8],feat_targets[16]])
+                # output_flow = [fine_flow, coarse_flow]
             else:
                 output_flow = self.cats_swin_decoder(attn_map, decfeat, (H,W), feat_source, feat_target, appearance_feature = [feat_targets[8],feat_targets[16]])
             return output_flow

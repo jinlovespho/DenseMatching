@@ -275,7 +275,7 @@ def select_model(model_name, pre_trained_model_type, args, global_optim_iter, lo
         ckpt = torch.load(args.croco_ckpt,'cpu')
         croco_args = croco_args_from_ckpt(ckpt)
 
-        croco_args['img_size'] = args.eval_img_size #((args.image_shape[0]//32)*32,(args.image_shape[1]//32)*32)
+        croco_args['img_size'] = args.model_img_size #((args.image_shape[0]//32)*32,(args.image_shape[1]//32)*32)
         croco_args['args'] = args
         network = CroCoNet(**croco_args)
         # msg1=network.load_state_dict(ckpt['model'], strict=False)
@@ -290,7 +290,7 @@ def select_model(model_name, pre_trained_model_type, args, global_optim_iter, lo
 
         ckpt = torch.load(args.croco_ckpt, 'cpu')
         croco_args = croco_args_from_ckpt(ckpt)
-        croco_args['img_size'] = args.eval_img_size
+        croco_args['img_size'] = args.model_img_size
         croco_args['args'] = args
         model = CroCoNet(**croco_args)
         msg=model.load_state_dict(ckpt['model'], strict=False)

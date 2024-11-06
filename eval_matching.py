@@ -206,13 +206,12 @@ def main(args, settings):
 
         elif args.dataset == 'eth3d':
             output = run_evaluation_eth3d(network, settings.env.eth3d, input_transform, target_transform, co_transform,
-                                          device, estimate_uncertainty=estimate_uncertainty)
+                                          device, estimate_uncertainty=estimate_uncertainty, args=args)
 
         else:
             raise ValueError('Unknown dataset, {}'.format(args.dataset))
 
         save_dict['{}'.format(pre_trained_model_type)] = output
-
 
     # log metric to wandb
     if args.log_tool == 'wandb':
@@ -223,6 +222,15 @@ def main(args, settings):
             wandb.log({'hp_metric_scene_4/':output['scene_4']})
             wandb.log({'hp_metric_scene_5/':output['scene_5']})   
             wandb.log({'hp_metric_all/':output['all']})
+        elif args.dataset == 'eth3d':
+            wandb.log({'eth3d_metric_rate_3/':output['rate_3']})
+            wandb.log({'eth3d_metric_rate_5/':output['rate_5']})
+            wandb.log({'eth3d_metric_rate_7/':output['rate_7']})
+            wandb.log({'eth3d_metric_rate_9/':output['rate_9']})
+            wandb.log({'eth3d_metric_rate_11/':output['rate_11']})
+            wandb.log({'eth3d_metric_rate_13/':output['rate_13']})
+            wandb.log({'eth3d_metric_rate_15/':output['rate_15']})
+            wandb.log({'eth3d_metric_avg/':output['avg']})
         print('logged to wandb!!')
 
 

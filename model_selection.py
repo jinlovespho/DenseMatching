@@ -32,6 +32,7 @@ def load_network(net, checkpoint_path=None, **kwargs):
     print(msg)
     print('---------------------------------------')
     print('Weight Loaded from .tar !')
+    print('Checkpoint Path: ', checkpoint_path)
     print('missing keys: ', msg.missing_keys) # model 에는 있는데 ckpt 에는 없는 것들
     print('unexpected keys: ', msg.unexpected_keys) # ckpt 에는 있는데 model 에는 없는 것들
     print('---------------------------------------')

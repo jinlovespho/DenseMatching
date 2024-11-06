@@ -5,6 +5,7 @@ CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py \
     --seed 1997 \
     --dataset hp-224 \
     --eval_img_size 224 224 \
+    --model_img_size 224 224 \
     --model crocoflow \
     --pre_trained_models croco \
     --croco_ckpt ./pretrained_weights/crocoflow.pth \

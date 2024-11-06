@@ -1,11 +1,9 @@
 #!/bin/bash
 
-
-
-CUDA=2
+CUDA=3
 CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py \
     --seed 1997 \
-    --dataset hp \
+    --dataset eth3d \
     --model_img_size 224 224 \
     --dense_zoom_in \
     --dense_zoom_ratio 2 3 \
@@ -18,15 +16,13 @@ CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py \
     --softmax_camap \
     --correlation \
     --reciprocity \
-    --save_dir ./vis/eval/zoom23_hp_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0080_fineflow \
+    --save_dir ./vis/eval/zoom23_eth3d_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0080_fineflow \
     --log_tool wandb \
     --wandb_path ./ \
     --wandb_proj_name matching_dped \
-    --wandb_exp_name pho_EVAL_zoom23_hp_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0080_fineflow \
+    --wandb_exp_name pho_EVAL_zoom23_eth3d_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0080_fineflow\
     --wandb_log_img \
-    
     # --compute_metrics_uncertainty \
     # --plot \
     # --plot_100 \
     # --plot_individual_images \
-

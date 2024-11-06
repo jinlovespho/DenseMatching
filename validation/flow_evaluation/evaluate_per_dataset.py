@@ -24,30 +24,29 @@ from torchvision import transforms
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-def warp_image(image, flow):
-    """Warp image using flow field"""
-    B, C, H, W = image.size()
-    # Create mesh grid
-    xx = torch.arange(0, W).view(1, -1).repeat(H, 1)
-    yy = torch.arange(0, H).view(-1, 1).repeat(1, W)
-    xx = xx.view(1, 1, H, W).repeat(B, 1, 1, 1)
-    yy = yy.view(1, 1, H, W).repeat(B, 1, 1, 1)
-    grid = torch.cat((xx, yy), 1).float().to(device)
+# def warp_image(image, flow):
+#     """Warp image using flow field"""
+#     B, C, H, W = image.size()
+#     # Create mesh grid
+#     xx = torch.arange(0, W).view(1, -1).repeat(H, 1)
+#     yy = torch.arange(0, H).view(-1, 1).repeat(1, W)
+#     xx = xx.view(1, 1, H, W).repeat(B, 1, 1, 1)
+#     yy = yy.view(1, 1, H, W).repeat(B, 1, 1, 1)
+#     grid = torch.cat((xx, yy), 1).float().to(device)
         
-    # Add flow to grid
-    vgrid = grid + flow
+#     # Add flow to grid
+#     vgrid = grid + flow
         
-    # Scale grid to [-1,1]
-    vgrid[:, 0, :, :] = 2.0 * vgrid[:, 0, :, :] / max(W-1, 1) - 1.0
-    vgrid[:, 1, :, :] = 2.0 * vgrid[:, 1, :, :] / max(H-1, 1) - 1.0
+#     # Scale grid to [-1,1]
+#     vgrid[:, 0, :, :] = 2.0 * vgrid[:, 0, :, :] / max(W-1, 1) - 1.0
+#     vgrid[:, 1, :, :] = 2.0 * vgrid[:, 1, :, :] / max(H-1, 1) - 1.0
         
-    # Reshape for grid_sample
-    vgrid = vgrid.permute(0, 2, 3, 1)
+#     # Reshape for grid_sample
+#     vgrid = vgrid.permute(0, 2, 3, 1)
         
-    # Warp
-    output = torch.nn.functional.grid_sample(image, vgrid, align_corners=True)
-    return output
-
+#     # Warp
+#     output = torch.nn.functional.grid_sample(image, vgrid, align_corners=True)
+#     return output
 
 def resize_images_to_min_resolution(min_size, img, x, y, stride_net=16):  # for consistency with RANSAC-Flow
     """
@@ -312,13 +311,13 @@ def run_evaluation_sintel(network, test_dataloader, device, estimate_uncertainty
     return output
 
 
-def run_evaluation_generic(network, test_dataloader, device, estimate_uncertainty=False, curr_id=None, args=None):
+def run_evaluation_generic(network, test_dataloader, device, estimate_uncertainty=False, name_dataset=None, rate=None, curr_id=None, args=None):
     pbar = tqdm(enumerate(test_dataloader), total=len(test_dataloader))
     mean_epe_list, epe_all_list, pck_1_list, pck_3_list, pck_5_list = [], [], [], [], []
     dict_list_uncertainties = {}
 
     # number of images to log to wandb
-    wandb_num_log_img = 16
+    wandb_num_log_img = 24
 
     for i_batch, mini_batch in pbar:
         source_img = mini_batch['source_image'] # source, target, flow_gt, mask_valid ALL resized to args.eval_img_size
@@ -330,6 +329,29 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
 
         source_img = source_img.float().to(device) # 1 3 h w
         target_img = target_img.float().to(device) # 1 3 h w
+
+        # save_image(source_img, f'./img_src.jpg', normalize=True)
+        # save_image(target_img, f'./img_tgt.jpg', normalize=True)
+        # save_image(mask_valid.float(), f'./img_mask.jpg', normalize=True)
+        # warped_source_gt = warp(source_img, flow_gt)  
+        # save_image(warped_source_gt, f'./img_warped_src_gt.jpg', normalize=True)
+
+        if args.dataset == 'eth3d' and args.eval_img_size is not None:
+            eval_h, eval_w = args.eval_img_size
+            # H_32, W_32 = (H//32)*32, (W//32)*32
+            source_img = F.interpolate(source_img, size=(eval_h, eval_w), mode='bilinear', align_corners=True).to(device)
+            target_img = F.interpolate(target_img, size=(eval_h, eval_w), mode='bilinear', align_corners=True).to(device)
+            mask_valid = F.interpolate(mask_valid.float().unsqueeze(0), size=(eval_h, eval_w), mode='nearest').squeeze(0).bool().to(device)
+            flow_gt_h,flow_gt_w = flow_gt.size(2),flow_gt.size(3)
+            flow_gt = F.interpolate(flow_gt, size=(eval_h, eval_w), mode='bilinear', align_corners=True).to(device)
+            flow_gt[:,0,:,:] *= eval_w/flow_gt_w
+            flow_gt[:,1,:,:] *= eval_h/flow_gt_h   
+
+            # save_image(source_img, f'.tmp1_img_src.jpg', normalize=True)
+            # save_image(target_img, f'.tmp1_img_tgt.jpg', normalize=True)
+            # save_image(mask_valid.float(), f'.tmp1_img_mask.jpg', normalize=True)
+            # warped_source_gt = warp(source_img, flow_gt)  
+            # save_image(warped_source_gt, f'.tmp1_img_warped_src_gt.jpg', normalize=True)
 
         # crocoflow, croco_catseg, 
         if 'croco' in args.model:   
@@ -348,7 +370,7 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
                     if args.dense_zoom_in:
                         flow_est, uncertainty_est = network.zoom_in_batch(source_img, target_img, zoom_ratio=args.dense_zoom_ratio, optimize=False, homo_only=False, batch_size=b)
                     else:
-                        output_flow = network(target_img, source_img)
+                        output_flow = network(target_img, source_img)   
                         # output_flow = [fine_flow, coarse_flow] 
                         flow_est = output_flow[0]   # fine_flow
                         # flow_est = output_flow[1]   # coarse_flow
@@ -362,20 +384,22 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
             else:
                 flow_est = network.estimate_flow(source_img, target_img)    
 
-        # # match flow_est shape to source_img_shape
-        # if flow_est.shape[-2:] == source_img.shape[-2:]:
-        #     pass
-        # else:
-        #     flow_est = F.interpolate(flow_est, size=source_img.shape[-2:], mode='bilinear', align_corners=False)
+
+        # flow_est = F.interpolate(flow_est, size=source_img.shape[-2:], mode='bilinear', align_corners=False)
 
         # =========================== log warped imgs to wandb (cursor) ==================================
+        if args.dataset == 'eth3d':
+            curr_id = 0
+            # tmp = source_img.clone()
+            # source_img = target_img.clone()
+            # target_img = tmp
+            
         if args.log_tool == 'wandb' and args.wandb_log_img and curr_id < 5:
             # Log warped images to wandb for first few batches
             if i_batch < wandb_num_log_img and args.log_tool is not None:
                 # Warp source image using ground truth and estimated flows
-                warped_source_gt = warp_image(source_img, flow_gt)  
-                warped_source_est = warp_image(source_img, flow_est)
-                
+                warped_source_gt = warp(source_img, flow_gt)  
+                warped_source_est = warp(source_img, flow_est)
                 # Apply mask to warped estimated flow
                 warped_source_est_masked = warped_source_est * mask_valid.unsqueeze(1)
 
@@ -384,43 +408,22 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
                     torch.cat([source_img[0], target_img[0]], dim=2),
                     torch.cat([warped_source_gt[0], warped_source_est[0]], dim=2),  # warped_source는 최종적으로 Tgt이미지가 나와야하는 것!
                     torch.cat([mask_valid[0].unsqueeze(0).repeat(3,1,1), # Repeat mask 3 times for RGB channels
-                             warped_source_est_masked[0]], dim=2) # Show masked warped estimate in last column
+                            warped_source_est_masked[0]], dim=2) # Show masked warped estimate in last column
                 ], dim=1)
-                
                 # Save image grid locally
                 # save_image(img_grid.cpu(), f'./tmp.png')
-                
-                # Log to wandb
-                wandb.log({
-                    f"vis_warped_flow_{curr_id+1}/img_{i_batch}": wandb.Image(
-                        img_grid.cpu(),
-                        caption=f"Top: Source | Target, Middle: Warped (GT) | Warped (Est), Bottom: Valid Mask | Masked Warped (Est), Img_size: {h}x{w}"
-                    )
-                })
-            # =========================== Cursor ==================================
 
-        # # =========================== log warped imgs to wandb (cursor) ==================================
-        # if args.log_tool == 'wandb' and args.wandb_log_img and curr_id < 5:
-        #     # Log warped images to wandb for first few batches
-        #     if i_batch < wandb_num_log_img and args.log_tool is not None:
-        #         # Warp source image using ground truth and estimated flows
-        #         warped_source_gt = warp_image(source_img, flow_gt)
-        #         warped_source_est = warp_image(source_img, flow_est)
-                
-        #         # Create grid of images for visualization
-        #         img_grid = torch.cat([
-        #             torch.cat([source_img[0], target_img[0]], dim=2),
-        #             torch.cat([warped_source_gt[0], warped_source_est[0]], dim=2)
-        #         ], dim=1)
-                
-        #         # Log to wandb
-        #         wandb.log({
-        #             f"vis_warped_flow_{curr_id+1}/img_{i_batch}": wandb.Image(
-        #                 img_grid.cpu(),
-        #                 caption=f"Top: Source | Target, Bottom: Warped (GT) | Warped (Est), Img_size: {h}x{w}"
-        #             )
-        #         })
-        #     # =========================== Cursor ==================================
+                if args.dataset == 'eth3d':
+                    wandb.log({
+                        f"vis_warped_flow_{name_dataset}_rate{rate}/img_{i_batch}": wandb.Image(
+                            img_grid.cpu(),
+                            caption=f"Top: Query | Reference, Middle: Warped (GT) | Warped (Est), Bottom: Valid Mask | Masked Warped (Est), Img_size: {h}x{w}")})
+                else:
+                    wandb.log({
+                        f"vis_warped_flow_{curr_id+1}/img_{i_batch}": wandb.Image(
+                            img_grid.cpu(),
+                            caption=f"Top: Source | Target, Middle: Warped (GT) | Warped (Est), Bottom: Valid Mask | Masked Warped (Est), Img_size: {h}x{w}")})
+            # =========================== Cursor ==================================
 
         flow_est = flow_est.permute(0, 2, 3, 1)[mask_valid]
         flow_gt = flow_gt.permute(0, 2, 3, 1)[mask_valid]
@@ -462,12 +465,13 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
 
 
 def run_evaluation_eth3d(network, data_dir, input_images_transform, gt_flow_transform, co_transform, device,
-                         estimate_uncertainty):
+                         estimate_uncertainty, args=None):
     # ETH3D dataset information
     dataset_names = ['lakeside', 'sand_box', 'storage_room', 'storage_room_2', 'tunnel', 'delivery_area', 'electro',
                      'forest', 'playground', 'terrains']
     rates = list(range(3, 16, 2))
     dict_results = {}
+    
     for rate in rates:
         print('Computing results for interval {}...'.format(rate))
         dict_results['rate_{}'.format(rate)] = {}
@@ -478,6 +482,7 @@ def run_evaluation_eth3d(network, data_dir, input_images_transform, gt_flow_tran
         num_valid_correspondences = 0.0
         for name_dataset in dataset_names:
             print('looking at dataset {}...'.format(name_dataset))
+
             test_set = ETHInterval(root=data_dir,
                                    path_list=os.path.join(data_dir, 'info_ETH3D_files',
                                                           '{}_every_5_rate_of_{}'.format(name_dataset, rate)),
@@ -490,7 +495,7 @@ def run_evaluation_eth3d(network, data_dir, input_images_transform, gt_flow_tran
                                          shuffle=False,
                                          num_workers=8)
             print(test_set.__len__())
-            output = run_evaluation_generic(network, test_dataloader, device, estimate_uncertainty)
+            output = run_evaluation_generic(network, test_dataloader, device, estimate_uncertainty, name_dataset=name_dataset, rate=rate, args=args)
             # to save the intermediate results
             # dict_results['rate_{}'.format(rate)][name_dataset] = output
             list_of_outputs_per_rate.append(output)

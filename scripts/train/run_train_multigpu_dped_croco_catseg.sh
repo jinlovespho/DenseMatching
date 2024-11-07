@@ -38,7 +38,7 @@ ETC_ARGS="
 "
 
 CUDA_VISIBLE_DEVICES=${CUDA} \
-    torchrun --standalone --nproc_per_node=${NPROC_PER_NODE} run_training.py 'croco' 'train_croco_static_multigpu' \
+    torchrun --standalone --nproc_per_node=${NPROC_PER_NODE} run_training.py 'croco' 'train_croco_static_stage1_multigpu' \
     ${DATA_ARGS} \
     ${TRAIN_ARGS} \
     ${MODEL_ARGS} \

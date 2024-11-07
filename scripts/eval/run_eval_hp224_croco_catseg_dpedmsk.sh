@@ -1,9 +1,25 @@
 #!/bin/bash
 
+# ep(57) - /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0057.pth.tar
+# Validation EPE: 4.867763, 1px: 0.750827, 3px: 0.936564, 5px: 0.962140
 
-# 현재 제일 잘 나온 모델 (ep63)
-# 
-CUDA=2
+# (ep63) - /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0063.pth.tar
+# Validation EPE: 4.926181, 1px: 0.749193, 3px: 0.934810, 5px: 0.960156
+
+# (ep64) - /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0064.pth.tar
+# Validation EPE: 4.923685, 1px: 0.745711, 3px: 0.937248, 5px: 0.962999
+
+# (ep80) - /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0080.pth.tar
+# Validation EPE: 4.744846, 1px: 0.789866, 3px: 0.943540, 5px: 0.964811
+
+# (ep100) - /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0100.pth.tar
+# Validation EPE: 4.754663, 1px: 0.789996, 3px: 0.943419, 5px: 0.964041
+
+# (model_best) - /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_model_best.pth.tar
+# Validation EPE: 4.761091, 1px: 0.792701, 3px: 0.943957, 5px: 0.964300
+
+
+CUDA=4
 CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py \
     --seed 1997 \
     --dataset hp-224 \
@@ -12,17 +28,17 @@ CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py \
     --model croco_catseg \
     --pre_trained_models croco \
     --croco_ckpt ./pretrained_weights/CroCo_V2_ViTLarge_BaseDecoder.pth \
-    --path_to_pre_trained_models /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0080.pth.tar \
+    --path_to_pre_trained_models /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_model_best.pth.tar \
     --output_flow_interp \
     --output_ca_map \
     --softmax_camap \
     --correlation \
     --reciprocity \
-    --save_dir ./vis/eval/hp224_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0080_fineflow \
+    --save_dir ./vis/eval/hp224_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_model_best_fineflow \
     --log_tool wandb \
     --wandb_path ./ \
     --wandb_proj_name matching_dped \
-    --wandb_exp_name pho_EVAL_hp224_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0080_fineflow \
+    --wandb_exp_name pho_EVAL_hp224_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_model_best_fineflow \
     --wandb_log_img \
     # --compute_metrics_uncertainty \
     # --plot \

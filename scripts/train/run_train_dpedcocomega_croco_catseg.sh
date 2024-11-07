@@ -1,7 +1,8 @@
 #!/bin/bash
 
-CUDA=4
-BATCH_SIZE=10
+CUDA=2,3,4,5
+BATCH_SIZE=8
+NPROC_PER_NODE=4
 
 DATA_ARGS="
     --dataset dped_coco_mega \
@@ -23,7 +24,8 @@ MODEL_ARGS="
     --softmax_camap \
     --correlation \
     --reciprocity \
-    --freeze croco_all \
+    --uncertainty \
+    --freeze croco_enc \
 "
 # --freeze none     # full fine tuning
 # --freeze croco_enc    # freeze only croco encoder
@@ -32,18 +34,19 @@ LOG_ARGS="
     --log_tool wandb \
     --wandb_path ./ \
     --wandb_proj_name matching_dped \
-    --wandb_exp_name pho${CUDA}_TRAIN_dpedmsk_img224_bs${BATCH_SIZE}_lr1e3_croco_catseg_freezeCrocoAll_try1 \
+    --wandb_exp_name pho${CUDA}_TRAIN_stage2_dpedcocomega_img224_bs${BATCH_SIZE}_lr1e3_croco_catseg_freezeCrocoEnc \
 "
 ETC_ARGS="
-
+    --multi_gpu \
 "
 
 
-CUDA_VISIBLE_DEVICES=${CUDA} python run_training.py 'croco' 'train_croco_dynamic_stage2' \
-                                                                                        ${DATA_ARGS} \
-                                                                                        ${TRAIN_ARGS} \
-                                                                                        ${MODEL_ARGS} \
-                                                                                        ${LOG_ARGS} \
-                                                                                        ${ETC_ARGS}
+CUDA_VISIBLE_DEVICES=${CUDA} \
+    torchrun --standalone --nproc_per_node=${NPROC_PER_NODE} run_training.py 'croco' 'train_croco_dynamic_stage2' \
+    ${DATA_ARGS} \
+    ${TRAIN_ARGS} \
+    ${MODEL_ARGS} \
+    ${LOG_ARGS} \
+    ${ETC_ARGS}
 
 

@@ -287,6 +287,7 @@ if __name__ == "__main__":
     parser.add_argument('--softmax_camap', action='store_true', help='softmax confidence map? default is False')
     parser.add_argument('--correlation', action='store_true', help='compute correlation? default is False')
     parser.add_argument('--reciprocity', action='store_true', help='compute reciprocity? default is False')
+    parser.add_argument('--uncertainty', action='store_true', help='compute uncertainty? default is False')
     parser.add_argument('--model_img_size', nargs='+', type=int, help='model image size')
 
     # inference 

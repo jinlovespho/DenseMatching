@@ -381,6 +381,9 @@ class CrocoBasedActor(BaseActor):
 
                 b,c,h,w = mini_batch['source_image'].shape
 
+                if isinstance(output_net_original, dict):
+                    output_net_original = output_net_original['flow_estimates'][0]  # fine flow
+
                 # Warp source image using ground truth and estimated flows
                 warped_source_gt = warp_image(mini_batch['source_image'], mini_batch['flow_map'])
                 warped_source_est = warp_image(mini_batch['source_image'], output_net_original)

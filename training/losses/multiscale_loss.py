@@ -217,7 +217,6 @@ class MultiScaleMixtureDensity:
         Returns:
             loss: computed loss
             stats: dict with stats from the loss computation
-
         """
 
         if isinstance(network_output, dict):

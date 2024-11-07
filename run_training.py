@@ -89,6 +89,7 @@ def main():
     parser.add_argument('--softmax_camap', action='store_true', help='apply Softmax to the output cross attention map')
     parser.add_argument('--correlation', action='store_true', help='Correlation')
     parser.add_argument('--reciprocity', action='store_true', help='Reciprocity')
+    parser.add_argument('--uncertainty', action='store_true', help='Uncertainty')
 
     # log_args
     parser.add_argument('--log_tool', type=str, default=None)
@@ -98,6 +99,9 @@ def main():
 
     # etc_args
     parser.add_argument('--multi_gpu', action='store_true', help='Multi GPU')   # default is False
+
+    # dped_coco_megadepth stage2 training 
+    parser.add_argument('--path_to_pre_trained_models', type=str, help='Path to the stage1 pre-trained models')
 
     args = parser.parse_args()
 

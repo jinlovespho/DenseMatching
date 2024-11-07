@@ -19,7 +19,7 @@ from einops import rearrange, repeat
 from timm.layers import to_2tuple
 
 ## uncertainty
-
+from models.croco.conv4d_coponerf import Conv4d
 
 r'''
 Modified timm library Vision Transformer implementation
@@ -473,6 +473,7 @@ class CATs_SWIN_Decoder(nn.Module):
         self.reciprocity = args.reciprocity
         self.correlation = args.correlation
         self.output_flow_interp = args.output_flow_interp
+        self.uncertainty = args.uncertainty
 
         self.feature_size = feature_size
         self.feature_proj_dim = feature_proj_dim
@@ -522,6 +523,30 @@ class CATs_SWIN_Decoder(nn.Module):
         self.decoder1 = Up(len(hyperpixel_ids), decoder_dims[0], decoder_guidance_proj_dims[0], intermediate_dim=16)
         self.decoder2 = Up(decoder_dims[0], decoder_dims[1], decoder_guidance_proj_dims[1], intermediate_dim=32)
         self.head = nn.Conv2d(decoder_dims[1], 1, kernel_size=3, stride=1, padding=1)
+
+        ## Uncertainty
+        if self.uncertainty:
+            self.coarse_uncertainty = nn.Sequential(
+                Conv4d(in_channels=13, out_channels=16, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
+                nn.GroupNorm(4,16),
+                nn.ReLU(),
+                Conv4d(in_channels=16, out_channels=16, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
+                nn.GroupNorm(4,16),
+                nn.ReLU(),
+                Conv4d(in_channels=16, out_channels=3, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
+                nn.ReLU(),
+                )
+            
+            self.fine_uncertainty = nn.Sequential(
+                Conv4d(in_channels=32, out_channels=16, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
+                nn.GroupNorm(4,16),
+                nn.ReLU(),
+                Conv4d(in_channels=16, out_channels=16, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
+                nn.GroupNorm(4,16),
+                nn.ReLU(),
+                Conv4d(in_channels=16, out_channels=3, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
+                nn.ReLU(),
+            )
         
         
     def softmax_with_temperature(self, x, beta, d = 1):
@@ -616,9 +641,10 @@ class CATs_SWIN_Decoder(nn.Module):
         corr_embed = rearrange(corr_embed, 'b c (th tw) s -> (b s) c th tw', th=self.feature_size, tw=self.feature_size)        
         corr_embed = self.decoder1(corr_embed, guidance[0])        
         corr_embed = self.decoder2(corr_embed, guidance[1])
+        corr_embed_uncertainty = rearrange(corr_embed, '(b s) c th tw -> b c th tw s', s=S)
         corr_embed = self.head(corr_embed)
         corr_embed = rearrange(corr_embed, '(b s) () th tw -> (b) s th tw', s=S)
-        return corr_embed
+        return corr_embed, corr_embed_uncertainty
 
     def forward(self, attn_maps, tgt_feats,output_shape, feat_source, feat_target, attn_maps_source=None, src_feats=None, tgt_img = None, src_img = None, appearance_feature = None):
         B, _,_ = tgt_feats[0].size()
@@ -684,16 +710,48 @@ class CATs_SWIN_Decoder(nn.Module):
         
         projected_decoder_guidance = [proj(guidance) for proj, guidance in zip(self.decoder_guidance_projection, upsampled_appearance_feature)]
         
-        upsampled_corr = self.conv_decoder(refined_layered_corr, projected_decoder_guidance)
+        upsampled_corr, corr_uncertainty = self.conv_decoder(refined_layered_corr, projected_decoder_guidance)
         
         fine_gridx, fine_gridy = self.soft_argmax_asymmetric(upsampled_corr, (self.feature_size, self.feature_size),beta=2e-2)
         
         fine_flow = torch.cat((fine_gridx, fine_gridy), dim=1)
         fine_flow = unnormalise_and_convert_mapping_to_flow(fine_flow)
+
+        if self.uncertainty:
+            PH, PW = output_shape[0]//16, output_shape[1]//16
+            C = refined_layered_corr.size(1)
+            refined_layered_corr = refined_layered_corr.permute(0,1,3,2).view(B,C,PH, PW, PH, PW)
+            coarse_uncertainty = self.coarse_uncertainty(refined_layered_corr)
+            bsz, ch, ha, wa, hb, wb = coarse_uncertainty.size()
+            coarse_uncertainty = coarse_uncertainty.view(bsz, ch, ha, wa, -1).mean(dim=-1)
+            
+            FC = corr_uncertainty.size(1)
+            FTH, FTW = corr_uncertainty.size(2), corr_uncertainty.size(3)
+            fine_refined_corr = corr_uncertainty.view(B, FC, FTH, FTW, PH, PW)
+            fine_uncertainty = self.fine_uncertainty(fine_refined_corr)
+            fine_uncertainty = fine_uncertainty.view(B, 3, FTH, FTW, -1).mean(dim=-1)
+            
+            coarse_uncertainty = F.interpolate(coarse_uncertainty, size=output_shape, mode='bilinear', align_corners=False)
+            fine_uncertainty = F.interpolate(fine_uncertainty, size=output_shape, mode='bilinear', align_corners=False)
+            
+            large_log_var_map_coarse = self.constrain_large_log_var_map(torch.tensor(2.0), torch.tensor(0.0), coarse_uncertainty[:,0].unsqueeze(1))
+            small_log_var_map_coarse = torch.ones_like(large_log_var_map_coarse, requires_grad=False) * torch.log(torch.tensor(1.0))
+            log_var_map_coarse = torch.cat((small_log_var_map_coarse, large_log_var_map_coarse), 1)
+            weight_map_coarse = coarse_uncertainty[:,1:]
+            
+            large_log_var_map_fine = self.constrain_large_log_var_map(torch.tensor(2.0), torch.tensor(0.0), fine_uncertainty[:,0].unsqueeze(1))
+            small_log_var_map_fine = torch.ones_like(large_log_var_map_fine, requires_grad=False) * torch.log(torch.tensor(1.0))
+            log_var_map_fine = torch.cat((small_log_var_map_fine, large_log_var_map_fine), 1)
+            weight_map_fine = fine_uncertainty[:,1:]
+
         h, w = fine_flow.shape[-2:]
         if self.output_flow_interp:
             fine_flow = F.interpolate(fine_flow, size=output_shape, mode='bilinear', align_corners=False)
             fine_flow[:, 0] *= float(output_shape[1]) / float(w)
             fine_flow[:, 1] *= float(output_shape[0]) / float(h)
 
+        if self.uncertainty:
+            return {'flow_estimates': [fine_flow, coarse_flow],
+                    'uncertainty_estimates': [[log_var_map_coarse, weight_map_coarse], [log_var_map_fine, weight_map_fine]]}
+        
         return [fine_flow, coarse_flow]

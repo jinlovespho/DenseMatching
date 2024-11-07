@@ -34,7 +34,7 @@ ETC_ARGS="
 "
 # --multi_gpu
 
-CUDA_VISIBLE_DEVICES=${CUDA} python run_training.py 'croco' 'train_croco_static' \
+CUDA_VISIBLE_DEVICES=${CUDA} python run_training.py 'croco' 'train_croco_static_stage1' \
                                                                                     ${DATA_ARGS} \
                                                                                     ${TRAIN_ARGS} \
                                                                                     ${MODEL_ARGS} \

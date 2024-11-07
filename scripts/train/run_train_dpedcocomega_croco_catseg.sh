@@ -12,13 +12,13 @@ TRAIN_ARGS="
     --seed 1997 \
     --img_size 224 224 \
     --batch_size ${BATCH_SIZE} \
-    --lr 1e-3 \
+    --lr 5e-5 \
     --max_epoch 100 \
 "
 MODEL_ARGS="
     --model croco_catseg \
     --croco_ckpt ./pretrained_weights/CroCo_V2_ViTLarge_BaseDecoder.pth \
-    --path_to_pre_trained_models /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0057.pth.tar \
+    --path_to_pre_trained_models /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_model_best.pth.tar \
     --output_flow_interp \
     --output_ca_map \
     --softmax_camap \
@@ -34,7 +34,7 @@ LOG_ARGS="
     --log_tool wandb \
     --wandb_path ./ \
     --wandb_proj_name matching_dped \
-    --wandb_exp_name pho${CUDA}_TRAIN_stage2_dpedcocomega_img224_bs${BATCH_SIZE}_lr1e3_croco_catseg_freezeCrocoEnc \
+    --wandb_exp_name pho${CUDA}_TRAIN_stage2_dpedcocomega_img224_bs${BATCH_SIZE}_lr5e5_croco_catseg_freezeCrocoEnc_uncertainty_newweight \
 "
 ETC_ARGS="
     --multi_gpu \

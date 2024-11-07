@@ -16,6 +16,7 @@ from utils_flow.pixel_wise_mapping import warp
 from torchvision.utils import save_image
 import wandb
 import os 
+import torch.distributed as dist
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -359,6 +360,35 @@ class CrocoBasedActor(BaseActor):
                 EPE, PCK_1, PCK_3, PCK_5 = real_metrics(output_net_original,
                                                         mini_batch['flow_map'], mini_batch['correspondence_mask'])
                 h_, w_ = output_net_original.shape[-2:]#[-(index_reso_original+1)].shape[-2:]
+
+            if dist.get_world_size() > 1:
+                local_EPE =   torch.tensor(EPE.item()).to(mini_batch['target_image'].device)
+                local_PCK_1 = torch.tensor(PCK_1.item()).to(mini_batch['target_image'].device)
+                local_PCK_3 = torch.tensor(PCK_3.item()).to(mini_batch['target_image'].device)
+                local_PCK_5 = torch.tensor(PCK_5.item()).to(mini_batch['target_image'].device)
+                
+                
+                EPEs = [torch.tensor(0.0).to(mini_batch['target_image'].device) for _ in range(dist.get_world_size())]
+                PCK_1s = [torch.tensor(0.0).to(mini_batch['target_image'].device) for _ in range(dist.get_world_size())]
+                PCK_3s = [torch.tensor(0.0).to(mini_batch['target_image'].device) for _ in range(dist.get_world_size())]
+                PCK_5s = [torch.tensor(0.0).to(mini_batch['target_image'].device) for _ in range(dist.get_world_size())]
+                
+                dist.all_gather(EPEs  , local_EPE  )
+                dist.all_gather(PCK_1s, local_PCK_1)
+                dist.all_gather(PCK_3s, local_PCK_3)
+                dist.all_gather(PCK_5s, local_PCK_5)
+                
+                EPE = torch.mean(torch.stack(EPEs))
+                PCK_1 = torch.mean(torch.stack(PCK_1s))
+                PCK_3 = torch.mean(torch.stack(PCK_3s))
+                PCK_5 = torch.mean(torch.stack(PCK_5s))
+                
+            else:
+                EPE = EPE.item()
+                PCK_1 = PCK_1.item()
+                PCK_3 = PCK_3.item()
+                PCK_5 = PCK_5.item()
+
             stats['EPE_HNet_reso_{}x{}/EPE'.format(h_, w_)] = EPE.item()
             stats['PCK_1_HNet_reso_{}x{}/EPE'.format(h_, w_)] = PCK_1.item()
             stats['PCK_3_HNet_reso_{}x{}/EPE'.format(h_, w_)] = PCK_3.item()
@@ -383,6 +413,8 @@ class CrocoBasedActor(BaseActor):
 
                 if isinstance(output_net_original, dict):
                     output_net_original = output_net_original['flow_estimates'][0]  # fine flow
+                elif isinstance(output_net_original, list):
+                    output_net_original = output_net_original[0]    # fine flow
 
                 # Warp source image using ground truth and estimated flows
                 warped_source_gt = warp_image(mini_batch['source_image'], mini_batch['flow_map'])
@@ -402,11 +434,6 @@ class CrocoBasedActor(BaseActor):
                     )
                 })
             # =========================== Cursor ==================================
-
-
-
-
-
 
 
             # training_or_validation = 'train' if training else 'val'

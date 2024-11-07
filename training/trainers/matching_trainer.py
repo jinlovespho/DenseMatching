@@ -84,10 +84,10 @@ class MatchingTrainer(BaseTrainer):
             data['settings'] = self.settings
 
             # forward pass
-            loss, stats = self.actor(data, loader.training)
-
             # backward pass and update weights
             if loader.training:
+                loss, stats = self.actor(data, loader.training)
+                
                 grad_is_nan = False
                 self.optimizer.zero_grad()
                 # breakpoint()
@@ -102,7 +102,10 @@ class MatchingTrainer(BaseTrainer):
                 if not grad_is_nan:
                     self.optimizer.step()
 
-                del loss
+                del loss                
+            else:
+                with torch.no_grad():
+                    loss, stats = self.actor(data, loader.training)
 
             if self.args.multi_gpu:
                 if dist.get_rank() == 0:
@@ -114,7 +117,7 @@ class MatchingTrainer(BaseTrainer):
                 self._update_stats(stats, batch_size, loader)
                 self._print_stats(i, loader, batch_size)
 
-        if not loader.training:
+        if not loader.training and dist.get_rank()==0:
             # update the current best value, for each epoch, can decide what is the best value.
             self.current_best_val = self.stats[loader.name]['best_value'].avg
 
@@ -132,8 +135,8 @@ class MatchingTrainer(BaseTrainer):
 
             # ForkedPdb().set_trace()
             # for ddp training
-            # if self.args.multi_gpu and loader.name == 'train':
-            #     loader.sampler.set_epoch(self.epoch)
+            if self.args.multi_gpu and loader.name == 'train':
+                loader.sampler.set_epoch(self.epoch)
 
             # resample the training dataset if dataset_callback_fn exists
             if loader.name == 'train' and self.epoch > 1 and not self.just_started and self.settings.dataset_callback_fn:

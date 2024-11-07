@@ -1,22 +1,30 @@
 #!/bin/bash
 
 # ep(57) - /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0057.pth.tar
-# Validation EPE: 4.867763, 1px: 0.750827, 3px: 0.936564, 5px: 0.962140
+# hp224 - Validation EPE: 4.867763, 1px: 0.750827, 3px: 0.936564, 5px: 0.962140
+# eth3d - zoom23 - 
+
 
 # (ep63) - /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0063.pth.tar
-# Validation EPE: 4.926181, 1px: 0.749193, 3px: 0.934810, 5px: 0.960156
+# hp224 - Validation EPE: 4.926181, 1px: 0.749193, 3px: 0.934810, 5px: 0.960156
 
 # (ep64) - /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0064.pth.tar
-# Validation EPE: 4.923685, 1px: 0.745711, 3px: 0.937248, 5px: 0.962999
+# hp224 - Validation EPE: 4.923685, 1px: 0.745711, 3px: 0.937248, 5px: 0.962999
 
 # (ep80) - /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0080.pth.tar
-# Validation EPE: 4.744846, 1px: 0.789866, 3px: 0.943540, 5px: 0.964811
+# hp224 - Validation EPE: 4.744846, 1px: 0.789866, 3px: 0.943540, 5px: 0.964811
+# eth3d - zoom23
 
 # (ep100) - /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0100.pth.tar
-# Validation EPE: 4.754663, 1px: 0.789996, 3px: 0.943419, 5px: 0.964041
+# hp224 - Validation EPE: 4.754663, 1px: 0.789996, 3px: 0.943419, 5px: 0.964041
+# hp - zoom234 - Validation EPE: 14.698702, 1px: 0.472491, 3px: 0.833618, 5px: 0.911935
+# hp - zoom345 - Validation EPE: 14.950584, 1px: 0.490877, 3px: 0.833727, 5px: 0.909261
+# eth3d - zoom
 
 # (model_best) - /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_model_best.pth.tar
-# Validation EPE: 4.761091, 1px: 0.792701, 3px: 0.943957, 5px: 0.964300
+# hp224 - Validation EPE: 4.761091, 1px: 0.792701, 3px: 0.943957, 5px: 0.964300
+# hp -zoom234 - Validation EPE: 14.699932, 1px: 0.477581, 3px: 0.834174, 5px: 0.912208
+# hp -zoom345 - Validation EPE: 14.984115, 1px: 0.493292, 3px: 0.834593, 5px: 0.910013
 
 
 CUDA=4

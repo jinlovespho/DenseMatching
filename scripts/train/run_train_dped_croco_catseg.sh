@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CUDA=4
+CUDA=3
 BATCH_SIZE=10
 
 DATA_ARGS="
@@ -28,7 +28,7 @@ MODEL_ARGS="
 # --freeze croco_enc    # freeze only croco encoder
 # --freeze croco_all    # freeze all croco parameters but the aggregator
 LOG_ARGS="
-    --log_tool wandb \
+    --log_tool wandba \
     --wandb_path ./ \
     --wandb_proj_name matching_dped \
     --wandb_exp_name pho${CUDA}_TRAIN_dpedmsk_img224_bs${BATCH_SIZE}_lr1e3_croco_catseg_freezeCrocoAll_try1 \

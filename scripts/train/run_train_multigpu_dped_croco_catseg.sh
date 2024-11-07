@@ -1,8 +1,8 @@
 #!/bin/bash
 
-CUDA="2,3"
+CUDA=2,3,4,5
 BATCH_SIZE=12
-NPROC_PER_NODE=2
+NPROC_PER_NODE=4
 DATA_ARGS="
     --dataset dped \
     --apply_coco_msk \

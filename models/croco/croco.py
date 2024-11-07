@@ -6,7 +6,6 @@
 # CroCo model during pretraining
 # --------------------------------------------------------
 
-
 import torch
 import torch.nn as nn
 torch.backends.cuda.matmul.allow_tf32 = True # for gpu >= Ampere and pytorch >= 1.12
@@ -20,6 +19,22 @@ from torchvision import transforms
 from utils_flow.pixel_wise_mapping import warp
 import torch.nn.functional as F
 from einops import rearrange
+
+import sys
+import pdb
+
+class ForkedPdb(pdb.Pdb):
+    """
+    PDB Subclass for debugging multi-processed code
+    Suggested in: https://stackoverflow.com/questions/4716533/how-to-attach-debugger-to-a-python-subproccess
+    """
+    def interaction(self, *args, **kwargs):
+        _stdin = sys.stdin
+        try:
+            sys.stdin = open('/dev/stdin')
+            pdb.Pdb.interaction(self, *args, **kwargs)
+        finally:
+            sys.stdin = _stdin
 
 
 
@@ -53,8 +68,8 @@ class CroCoNet(nn.Module):
 
         if self.model == 'croco_catseg':
             from models.croco.cats_swin_decoder import CATs_SWIN_Decoder
+            # ForkedPdb().set_trace()
             self.cats_swin_decoder = CATs_SWIN_Decoder(feature_size=(img_size[0]//16), hyperpixel_ids = [i for i in range(0, 12)], args=args)
-
         elif self.model == '':
             pass
                 

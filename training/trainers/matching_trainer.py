@@ -8,6 +8,7 @@ import time
 import gc
 
 import torch.distributed as dist
+import wandb
 
 import sys
 import pdb
@@ -106,6 +107,9 @@ class MatchingTrainer(BaseTrainer):
             else:
                 with torch.no_grad():
                     loss, stats = self.actor(data, loader.training)
+
+            if self.args.log_tool == 'wandb':
+                wandb.log({'Etc/learning_rate': self.lr_scheduler.get_last_lr()})
 
             if self.args.multi_gpu:
                 if dist.get_rank() == 0:

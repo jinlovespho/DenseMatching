@@ -299,7 +299,12 @@ class CroCoNet(nn.Module):
     def estimate_flow(self, target_img, source_img):
         output = self.forward(source_img, target_img)
         if self.model == 'croco_catseg':
-            flow_est = output[0]  # fine flow
+            if isinstance(output, dict):
+                flow_est = output['flow_estimates'][0]
+            elif isinstance(output, list):
+                flow_est = output[0]  # fine flow
+            else:
+                flow_est = output
         else:
             flow_est = output
         return flow_est

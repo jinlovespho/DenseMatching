@@ -34,7 +34,7 @@ LOG_ARGS="
     --log_tool wandb \
     --wandb_path ./ \
     --wandb_proj_name matching_dped \
-    --wandb_exp_name pho${CUDA}_TRAIN_stage2_dpedcocomega_img224_bs${BATCH_SIZE}_lr5e5_croco_catseg_freezeCrocoEnc_uncertainty_newweight \
+    --wandb_exp_name pho${CUDA}_TRAIN_stage2_dpedcocomega_img224_bs${BATCH_SIZE}_lr1e4_croco_catseg_freezeCrocoEnc_uncertainty5e5_newweight \
 "
 ETC_ARGS="
     --multi_gpu \

@@ -283,7 +283,7 @@ def run(settings, args):
                                          gamma=0.5)
 
     train_val_loader = [train_loader, val_loader]
-    # 9. Define Trainer
+    # 9. Define Traine
     trainer = MatchingTrainer(GLUNetActor, train_val_loader, optimizer, settings, lr_scheduler=scheduler, args=args)
     trainer.train(settings.n_epochs, load_latest=False, fail_safe=True)
 

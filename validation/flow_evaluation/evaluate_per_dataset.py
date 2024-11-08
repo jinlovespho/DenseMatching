@@ -370,10 +370,11 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
                     if args.dense_zoom_in:
                         flow_est, uncertainty_est = network.zoom_in_batch(source_img, target_img, zoom_ratio=args.dense_zoom_ratio, optimize=False, homo_only=False, batch_size=b)
                     else:
-                        output_flow = network(target_img, source_img)   
-                        # output_flow = [fine_flow, coarse_flow] 
-                        flow_est = output_flow[0]   # fine_flow
-                        # flow_est = output_flow[1]   # coarse_flow
+                        output = network(target_img, source_img)   
+                        if isinstance(output, dict):
+                            flow_est = output['flow_estimates'][0]
+                        elif isinstance(output, list):
+                            flow_est = output[0]
 
                 elif args.model == 'future croco models':
                     pass

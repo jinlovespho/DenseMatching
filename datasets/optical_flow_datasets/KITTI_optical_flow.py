@@ -56,7 +56,6 @@ def make_dataset(dir, split=0.9, occ=True, only_occ=False, dataset_name=None):
     ATTENTION HERE I MODIFIED WHICH IMAGE IS THE TARGET OR NOT
     Will search in training folder for folders 'flow_noc' or 'flow_occ'
        and 'colored_0' (KITTI 2012) or 'image_2' (KITTI 2015) '''
-
     if only_occ:
         flow_dir = 'flow_occ'
         flow_dir_noc = 'flow_noc'

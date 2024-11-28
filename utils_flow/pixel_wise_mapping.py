@@ -84,7 +84,7 @@ def warp(x, flo, padding_mode='zeros', return_mask=False):
 
     vgrid = vgrid.permute(0, 2, 3, 1)
 
-    if version.parse(torch.__version__) >= version.parse("1.3"):
+    if version.parse(torch.__version__) >= version.parse("1.3"):    # true
         output = nn.functional.grid_sample(x, vgrid, align_corners=True, padding_mode=padding_mode)
     else:
         output = nn.functional.grid_sample(x, vgrid, padding_mode=padding_mode)

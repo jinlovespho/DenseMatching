@@ -1,0 +1,326 @@
+1. Crocov2_BaseSmall_hp240_encfeat
+Hpatches Eval Img Size:  [240, 240]
+    I       Validation EPE: 21.019500, 1px: 0.021885, 3px: 0.139841, 5px: 0.283737
+    II      Validation EPE: 29.015436, 1px: 0.010620, 3px: 0.089359, 5px: 0.208391
+    III     Validation EPE: 31.483129, 1px: 0.010745, 3px: 0.088365, 5px: 0.204604
+    IV      Validation EPE: 33.224074, 1px: 0.010847, 3px: 0.083097, 5px: 0.191344
+    V       Validation EPE: 39.185966, 1px: 0.008174, 3px: 0.069055, 5px: 0.159763
+    Avg     Validation EPE: 30.785621, 1px: 0.012864, 3px: 0.096175, 5px: 0.213585
+
+2. Crocov2_BaseSmall_hp240_decfeat
+Hpatches Eval Img Size:  [240, 240]
+first decoder layer 
+    I       Validation EPE: 18.737547, 1px: 0.021744, 3px: 0.141850, 5px: 0.290827
+    II      Validation EPE: 29.823369, 1px: 0.009721, 3px: 0.084621, 5px: 0.200269
+    III     Validation EPE: 31.100964, 1px: 0.010507, 3px: 0.087759, 5px: 0.204580
+    IV      Validation EPE: 34.125192, 1px: 0.010745, 3px: 0.080869, 5px: 0.185493
+    V       Validation EPE: 42.523322, 1px: 0.007466, 3px: 0.063613, 5px: 0.148334
+    Avg     Validation EPE: 31.262079, 1px: 0.012453, 3px: 0.094160, 5px: 0.210437
+last decoder layer 
+    I       Validation EPE: 56.698111, 1px: 0.013934, 3px: 0.069544, 5px: 0.108335
+    II      Validation EPE: 63.737605, 1px: 0.003706, 3px: 0.028824, 5px: 0.055943
+    III     Validation EPE: 63.401115, 1px: 0.004332, 3px: 0.030234, 5px: 0.058622
+    IV      Validation EPE: 63.498015, 1px: 0.005178, 3px: 0.031533, 5px: 0.059832
+    V       Validation EPE: 65.848171, 1px: 0.002788, 3px: 0.023118, 5px: 0.047279
+    Avg     Validation EPE: 62.636603, 1px: 0.006302, 3px: 0.038009, 5px: 0.067786
+avg 8 decoder layers 
+    I       Validation EPE: 27.678252, 1px: 0.020210, 3px: 0.124007, 5px: 0.240475
+    II      Validation EPE: 39.687826, 1px: 0.008420, 3px: 0.070166, 5px: 0.161470
+    III     Validation EPE: 39.924524, 1px: 0.009115, 3px: 0.073593, 5px: 0.163415
+    IV      Validation EPE: 41.078629, 1px: 0.009412, 3px: 0.068719, 5px: 0.152825
+    V       Validation EPE: 48.665690, 1px: 0.006157, 3px: 0.053874, 5px: 0.120544
+    Avg     Validation EPE: 39.406984, 1px: 0.011073, 3px: 0.080209, 5px: 0.171512
+
+
+3. Crocov2_BaseSmall_hp240_camap
+Hpatches Eval Img Size:  [240, 240]
+    I       Validation EPE: 7.000806, 1px: 0.023579, 3px: 0.174494, 5px: 0.391546
+    II      Validation EPE: 10.337182, 1px: 0.015069, 3px: 0.132986, 5px: 0.332150
+    III     Validation EPE: 14.430511, 1px: 0.015573, 3px: 0.132901, 5px: 0.322817
+    IV      Validation EPE: 16.555609, 1px: 0.014879, 3px: 0.123301, 5px: 0.306304
+    V       Validation EPE: 18.484947, 1px: 0.012890, 3px: 0.109369, 5px: 0.268707
+    Avg     Validation EPE: 13.361811, 1px: 0.016723, 3px: 0.136722, 5px: 0.328439
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+4. Crocov2_BaseSmall_hp_encfeat
+Hpatches Eval Img Size:  original size
+    I       Validation EPE: 86.932119, 1px: 0.000788, 3px: 0.008056, 5px: 0.027132
+    II      Validation EPE: 125.297946, 1px: 0.000538, 3px: 0.004929, 5px: 0.013904
+    III     Validation EPE: 133.435175, 1px: 0.000580, 3px: 0.005363, 5px: 0.014893
+    IV      Validation EPE: 139.184695, 1px: 0.000716, 3px: 0.005913, 5px: 0.015088
+    V       Validation EPE: 170.871169, 1px: 0.000412, 3px: 0.003854, 5px: 0.010769
+    Avg     Validation EPE: 131.144221, 1px: 0.000615, 3px: 0.005731, 5px: 0.016809
+
+5. Crocov2_BaseSmall_hp_decfeat
+first decoder layer
+Hpatches Eval Img Size:  original size
+    I       Validation EPE: 79.434471, 1px: 0.000805, 3px: 0.008157, 5px: 0.028475
+    II      Validation EPE: 126.955362, 1px: 0.000481, 3px: 0.004519, 5px: 0.013013
+    III     Validation EPE: 131.529320, 1px: 0.000590, 3px: 0.005353, 5px: 0.014860
+    IV      Validation EPE: 145.094192, 1px: 0.000710, 3px: 0.005716, 5px: 0.014536
+    V       Validation EPE: 183.524613, 1px: 0.000371, 3px: 0.003611, 5px: 0.010204
+    Avg     Validation EPE: 133.307592, 1px: 0.000601, 3px: 0.005585, 5px: 0.016717
+
+6. Crocov2_BaseSmall_hp_camap
+Hpatches Eval Img Size:  original size
+    I       Validation EPE: 29.104532, 1px: 0.000899, 3px: 0.009568, 5px: 0.030377
+    II      Validation EPE: 42.781914, 1px: 0.000805, 3px: 0.007309, 5px: 0.020423
+    III     Validation EPE: 57.156204, 1px: 0.000815, 3px: 0.007582, 5px: 0.021092
+    IV      Validation EPE: 67.550431, 1px: 0.000832, 3px: 0.007510, 5px: 0.020312
+    V       Validation EPE: 75.022567, 1px: 0.000694, 3px: 0.006339, 5px: 0.017635
+    Avg     Validation EPE: 54.323130, 1px: 0.000815, 3px: 0.007752, 5px: 0.022333
+
+=================================================================================================================================================================================================================================================================
+1. Crocov2_BaseBase_hp240_encfeat
+SUPPL ARGS.CROCO_CKPT:  ./pretrained_weights/CroCo_V2_ViTBase_BaseDecoder.pth
+SUPPL ARGS.OUTPUT_MODE:  enc_feat
+    I       Validation EPE: 20.578131, 1px: 0.021210, 3px: 0.135173, 5px: 0.275304
+    II      Validation EPE: 27.388156, 1px: 0.010580, 3px: 0.091084, 5px: 0.218449
+    III     Validation EPE: 29.788474, 1px: 0.010851, 3px: 0.090243, 5px: 0.208186
+    IV      Validation EPE: 32.592582, 1px: 0.010405, 3px: 0.079884, 5px: 0.185183
+    V       Validation EPE: 38.703385, 1px: 0.008346, 3px: 0.068728, 5px: 0.161941
+    Avg     Validation EPE: 29.810145, 1px: 0.012668, 3px: 0.095191, 5px: 0.213742
+
+2. Crocov2_BaseBase_hp240_decfeat
+SUPPL ARGS.CROCO_CKPT:  ./pretrained_weights/CroCo_V2_ViTBase_BaseDecoder.pth
+SUPPL ARGS.OUTPUT_MODE:  dec_feat
+    I       Validation EPE: 20.376513, 1px: 0.020560, 3px: 0.134638, 5px: 0.275556
+    II      Validation EPE: 28.994559, 1px: 0.010333, 3px: 0.090741, 5px: 0.213574
+    III     Validation EPE: 30.312181, 1px: 0.010861, 3px: 0.090024, 5px: 0.206698
+    IV      Validation EPE: 33.986862, 1px: 0.010547, 3px: 0.081178, 5px: 0.186796
+    V       Validation EPE: 41.771774, 1px: 0.007938, 3px: 0.065683, 5px: 0.152486
+    Avg     Validation EPE: 31.088378, 1px: 0.012425, 3px: 0.094682, 5px: 0.211166
+
+3. Crocov2_BaseBase_hp240_camap
+SUPPL ARGS.CROCO_CKPT:  ./pretrained_weights/CroCo_V2_ViTBase_BaseDecoder.pth
+SUPPL ARGS.OUTPUT_MODE:  camap
+    I       Validation EPE: 5.817036, 1px: 0.027505, 3px: 0.190846, 5px: 0.426897
+    II      Validation EPE: 8.665591, 1px: 0.017609, 3px: 0.152902, 5px: 0.385200
+    III     Validation EPE: 13.020606, 1px: 0.018539, 3px: 0.157872, 5px: 0.385802
+    IV      Validation EPE: 15.140942, 1px: 0.019017, 3px: 0.154199, 5px: 0.375849
+    V       Validation EPE: 17.265735, 1px: 0.018299, 3px: 0.150426, 5px: 0.361586
+    Avg     Validation EPE: 11.981982, 1px: 0.020447, 3px: 0.162434, 5px: 0.389180
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+4. Crocov2_BaseBase_hp_encfeat
+Hpatches Eval Img Size:  original size
+SUPPL ARGS.CROCO_CKPT:  ./pretrained_weights/CroCo_V2_ViTBase_BaseDecoder.pth
+SUPPL ARGS.OUTPUT_MODE:  enc_feat
+    I       Validation EPE: 87.530758, 1px: 0.000797, 3px: 0.007818, 5px: 0.025868
+    II      Validation EPE: 120.505514, 1px: 0.000586, 3px: 0.005123, 5px: 0.014401
+    III     Validation EPE: 127.877717, 1px: 0.000574, 3px: 0.005317, 5px: 0.015046
+    IV      Validation EPE: 140.898068, 1px: 0.000648, 3px: 0.005423, 5px: 0.014132
+    V       Validation EPE: 167.203779, 1px: 0.000462, 3px: 0.004108, 5px: 0.011261
+    Avg     Validation EPE: 128.803167, 1px: 0.000622, 3px: 0.005661, 5px: 0.016563
+
+5. Crocov2_BaseBase_hp_decfeat
+Hpatches Eval Img Size:  original size
+SUPPL ARGS.CROCO_CKPT:  ./pretrained_weights/CroCo_V2_ViTBase_BaseDecoder.pth
+SUPPL ARGS.OUTPUT_MODE:  dec_feat
+    I       Validation EPE: 87.086580, 1px: 0.000813, 3px: 0.007898, 5px: 0.025867
+    II      Validation EPE: 127.621272, 1px: 0.000545, 3px: 0.005052, 5px: 0.014337
+    III     Validation EPE: 128.187287, 1px: 0.000554, 3px: 0.005261, 5px: 0.014774
+    IV      Validation EPE: 144.265852, 1px: 0.000634, 3px: 0.005373, 5px: 0.014185
+    V       Validation EPE: 175.961652, 1px: 0.000415, 3px: 0.003833, 5px: 0.010770
+    Avg     Validation EPE: 132.624529, 1px: 0.000602, 3px: 0.005596, 5px: 0.016421
+
+6. Crocov2_BaseBase_hp_camap
+Hpatches Eval Img Size:  original size
+SUPPL ARGS.CROCO_CKPT:  ./pretrained_weights/CroCo_V2_ViTBase_BaseDecoder.pth
+SUPPL ARGS.OUTPUT_MODE:  camap
+    I       Validation EPE: 24.819741, 1px: 0.001086, 3px: 0.010498, 5px: 0.035438
+    II      Validation EPE: 34.099187, 1px: 0.000926, 3px: 0.008562, 5px: 0.023662
+    III     Validation EPE: 48.642678, 1px: 0.000959, 3px: 0.008932, 5px: 0.024952
+    IV      Validation EPE: 58.666638, 1px: 0.001121, 3px: 0.009694, 5px: 0.025960
+    V       Validation EPE: 65.506268, 1px: 0.000976, 3px: 0.008758, 5px: 0.024209
+    Avg     Validation EPE: 46.346902, 1px: 0.001014, 3px: 0.009322, 5px: 0.027129
+    
+=================================================================================================================================================================================================================================================================
+1. Crocov2_LargeBase_hp240_encfeat
+Hpatches Eval Img Size:  [240, 240]
+    I       Validation EPE: 16.401606, 1px: 0.022731, 3px: 0.145598, 5px: 0.304225
+    II      Validation EPE: 24.792838, 1px: 0.011247, 3px: 0.094608, 5px: 0.226379
+    III     Validation EPE: 26.848950, 1px: 0.011530, 3px: 0.096520, 5px: 0.223977
+    IV      Validation EPE: 28.153750, 1px: 0.012063, 3px: 0.092833, 5px: 0.214709
+    V       Validation EPE: 36.006911, 1px: 0.008749, 3px: 0.073577, 5px: 0.174232
+    Avg     Validation EPE: 26.440811, 1px: 0.013675, 3px: 0.102837, 5px: 0.232840
+
+2. Crocov2_LargeBase_hp240_decfeat
+Hpatches Eval Img Size:  [240, 240]
+    I       Validation EPE: 21.915805, 1px: 0.021835, 3px: 0.134409, 5px: 0.268684
+    II      Validation EPE: 33.365615, 1px: 0.009314, 3px: 0.079270, 5px: 0.183283
+    III     Validation EPE: 33.809688, 1px: 0.010039, 3px: 0.081488, 5px: 0.183213
+    IV      Validation EPE: 38.057565, 1px: 0.010040, 3px: 0.074492, 5px: 0.165883
+    V       Validation EPE: 46.858428, 1px: 0.006720, 3px: 0.057083, 5px: 0.131216
+    Avg     Validation EPE: 34.801420, 1px: 0.012035, 3px: 0.087756, 5px: 0.190882
+
+3. Crocov2_LargeBase_hp240_camap
+Hpatches Eval Img Size:  [240, 240]
+    I       Validation EPE: 6.037123, 1px: 0.027894, 3px: 0.191075, 5px: 0.427662
+    II      Validation EPE: 9.818978, 1px: 0.017340, 3px: 0.152796, 5px: 0.386678
+    III     Validation EPE: 14.442648, 1px: 0.018607, 3px: 0.159816, 5px: 0.388303
+    IV      Validation EPE: 14.184954, 1px: 0.018215, 3px: 0.149471, 5px: 0.369209
+    V       Validation EPE: 17.271742, 1px: 0.017446, 3px: 0.144960, 5px: 0.354511
+    Avg     Validation EPE: 12.351089, 1px: 0.020198, 3px: 0.161046, 5px: 0.387738
+
+
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 59/59 [00:12<00:00,  4.81it/s]
+Validation EPE: 6.091073, 1px: 0.027651, 3px: 0.190287, 5px: 0.424835
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 59/59 [00:12<00:00,  4.83it/s]
+Validation EPE: 8.470014, 1px: 0.017827, 3px: 0.155499, 5px: 0.389513
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 59/59 [00:13<00:00,  4.49it/s]
+Validation EPE: 11.869659, 1px: 0.018171, 3px: 0.156160, 5px: 0.380391
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 59/59 [00:13<00:00,  4.39it/s]
+Validation EPE: 12.889571, 1px: 0.018103, 3px: 0.149680, 5px: 0.370787
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 59/59 [00:13<00:00,  4.46it/s]
+Validation EPE: 13.832624, 1px: 0.018122, 3px: 0.148906, 5px: 0.363021
+100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 295/295 [01:02<00:00,  4.71it/s]
+Validation EPE: 10.630588, 1px: 0.020253, 3px: 0.161424, 5px: 0.387854
+
+SUPPL ARGS.CROCO_CKPT:  ./pretrained_weights/CroCo_V2_ViTLarge_BaseDecoder.pth
+SUPPL ARGS.OUTPUT_MODE:  camap
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 59/59 [00:12<00:00,  4.62it/s]
+Validation EPE: 5.886449, 1px: 0.027879, 3px: 0.191052, 5px: 0.427793
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 59/59 [00:12<00:00,  4.62it/s]
+Validation EPE: 8.442824, 1px: 0.017389, 3px: 0.153388, 5px: 0.387773
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 59/59 [00:12<00:00,  4.79it/s]
+Validation EPE: 11.419100, 1px: 0.018670, 3px: 0.160220, 5px: 0.389858
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 59/59 [00:13<00:00,  4.45it/s]
+Validation EPE: 13.065167, 1px: 0.018327, 3px: 0.150301, 5px: 0.370838
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 59/59 [00:12<00:00,  4.87it/s]
+Validation EPE: 13.882688, 1px: 0.017677, 3px: 0.146616, 5px: 0.358364
+100%|████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 295/295 [01:06<00:00,  4.45it/s]
+Validation EPE: 10.539245, 1px: 0.020278, 3px: 0.161682, 5px: 0.389266
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+4. Crocov2_LargeBase_hp_encfeat
+Hpatches Eval Img Size:  original size
+args.output_mode:  enc_feat
+    I       Validation EPE: 69.221987, 1px: 0.000855, 3px: 0.008440, 5px: 0.029212
+    II      Validation EPE: 106.865394, 1px: 0.000609, 3px: 0.005536, 5px: 0.015489
+    III     Validation EPE: 111.341080, 1px: 0.000627, 3px: 0.005687, 5px: 0.015988
+    IV      Validation EPE: 120.019082, 1px: 0.000727, 3px: 0.006068, 5px: 0.015937
+    V       Validation EPE: 153.409129, 1px: 0.000466, 3px: 0.004172, 5px: 0.011637
+    Avg     Validation EPE: 112.171334, 1px: 0.000667, 3px: 0.006097, 5px: 0.018150
+
+5. Crocov2_LargeBase_hp_decfeat
+Hpatches Eval Img Size:  original size
+args.output_mode:  dec_feat
+    I       Validation EPE: 93.867437, 1px: 0.000784, 3px: 0.007798, 5px: 0.027688
+    II      Validation EPE: 147.680694, 1px: 0.000472, 3px: 0.004314, 5px: 0.012233
+    III     Validation EPE: 148.053434, 1px: 0.000519, 3px: 0.004850, 5px: 0.013502
+    IV      Validation EPE: 165.497360, 1px: 0.000602, 3px: 0.004942, 5px: 0.012957
+    V       Validation EPE: 208.724519, 1px: 0.000382, 3px: 0.003331, 5px: 0.009223
+    Avg     Validation EPE: 152.764689, 1px: 0.000562, 3px: 0.005166, 5px: 0.015637
+
+6. Crocov2_LargeBase_hp_camap
+Hpatches Eval Img Size:  original size
+args.output_mode:  camap
+    I       Validation EPE: 25.201800, 1px: 0.001089, 3px: 0.010581, 5px: 0.035997
+    II      Validation EPE: 37.566878, 1px: 0.000919, 3px: 0.008460, 5px: 0.023772
+    III     Validation EPE: 52.181921, 1px: 0.001004, 3px: 0.009190, 5px: 0.025575
+    IV      Validation EPE: 54.475763, 1px: 0.001052, 3px: 0.009130, 5px: 0.024561
+    V       Validation EPE: 65.424428, 1px: 0.000914, 3px: 0.008360, 5px: 0.023327
+    Avg     Validation EPE: 46.970158, 1px: 0.000999, 3px: 0.009197, 5px: 0.026992
+
+=================================================================================================================================================================================================================================================================
+
+1. Dust3r_hp240_encfeat
+    Hpatches Eval Img Size:  [240, 240]
+    I       Validation EPE: 12.359812, 1px: 0.022661, 3px: 0.156344, 5px: 0.332161
+    II      Validation EPE: 20.291695, 1px: 0.013156, 3px: 0.110984, 5px: 0.264605
+    III     Validation EPE: 22.289446, 1px: 0.012197, 3px: 0.102627, 5px: 0.245852
+    IV      Validation EPE: 24.922019, 1px: 0.012793, 3px: 0.097250, 5px: 0.228032
+    V       Validation EPE: 30.676574, 1px: 0.010259, 3px: 0.084400, 5px: 0.195951
+    Avg     Validation EPE: 22.107909, 1px: 0.014595, 3px: 0.112704, 5px: 0.258010
+
+
+2. Dust3r_hp240_decfeat
+        First decoder layer 
+    Hpatches Eval Img Size:  [240, 240]
+    I       Validation EPE: 16.768496, 1px: 0.021303, 3px: 0.145292, 5px: 0.302428
+    II      Validation EPE: 26.991794, 1px: 0.010723, 3px: 0.092757, 5px: 0.218450
+    III     Validation EPE: 28.986083, 1px: 0.011430, 3px: 0.092384, 5px: 0.217265
+    IV      Validation EPE: 31.865602, 1px: 0.011151, 3px: 0.086220, 5px: 0.198961
+    V       Validation EPE: 35.734482, 1px: 0.009035, 3px: 0.077021, 5px: 0.176713
+    Avg     Validation EPE: 28.069292, 1px: 0.013091, 3px: 0.100883, 5px: 0.226843
+        Last decoder layer 
+    Hpatches Eval Img Size:  [240, 240]
+    I       Validation EPE: 124.964374, 1px: 0.000131, 3px: 0.001331, 5px: 0.003346
+    II      Validation EPE: 130.443781, 1px: 0.000066, 3px: 0.000553, 5px: 0.001432
+    III     Validation EPE: 123.190395, 1px: 0.000087, 3px: 0.000726, 5px: 0.001947
+    IV      Validation EPE: 128.110995, 1px: 0.000056, 3px: 0.000519, 5px: 0.001387
+    V       Validation EPE: 126.721313, 1px: 0.000081, 3px: 0.000618, 5px: 0.001622
+    Avg     Validation EPE: 126.686172, 1px: 0.000086, 3px: 0.000771, 5px: 0.001998
+        Avg 12 decoder layers
+    Hpatches Eval Img Size:  [240, 240]
+    I       Validation EPE: 27.641281, 1px: 0.017575, 3px: 0.116837, 5px: 0.232002
+    II      Validation EPE: 42.278552, 1px: 0.007197, 3px: 0.061073, 5px: 0.141410
+    III     Validation EPE: 42.539717, 1px: 0.007456, 3px: 0.061195, 5px: 0.141110
+    IV      Validation EPE: 48.512960, 1px: 0.007588, 3px: 0.057146, 5px: 0.129318
+    V       Validation EPE: 55.121996, 1px: 0.004801, 3px: 0.043183, 5px: 0.097894
+    Avg     Validation EPE: 43.218901, 1px: 0.009304, 3px: 0.070167, 5px: 0.152587
+
+
+
+3. Dust3r_hp240_camap
+    Hpatches Eval Img Size:  [240, 240]
+    I       Validation EPE: 6.590365, 1px: 0.027328, 3px: 0.187804, 5px: 0.411622
+    II      Validation EPE: 12.542746, 1px: 0.017694, 3px: 0.152536, 5px: 0.372084
+    III     Validation EPE: 14.099120, 1px: 0.017249, 3px: 0.145796, 5px: 0.352199
+    IV      Validation EPE: 14.319540, 1px: 0.016345, 3px: 0.136762, 5px: 0.336746
+    V       Validation EPE: 16.684024, 1px: 0.016872, 3px: 0.136327, 5px: 0.324266
+    Avg     Validation EPE: 12.847159, 1px: 0.019428, 3px: 0.153618, 5px: 0.362557
+
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+1. Dust3r_hp_encfeat
+Hpatches Eval Img Size:  original size
+
+I       Validation EPE: 53.600470, 1px: 0.000892, 3px: 0.008951, 5px: 0.029333
+II      Validation EPE: 85.936290, 1px: 0.000707, 3px: 0.006441, 5px: 0.018328
+III     Validation EPE: 95.808029, 1px: 0.000652, 3px: 0.006029, 5px: 0.016724
+IV      Validation EPE: 104.567867, 1px: 0.000741, 3px: 0.006212, 5px: 0.016412
+V       Validation EPE: 132.254524, 1px: 0.000526, 3px: 0.004786, 5px: 0.013385
+Avg     Validation EPE: 94.433436, 1px: 0.000714, 3px: 0.006609, 5px: 0.019324
+
+
+
+2. Dust3r_hp_decfeat
+    first decoder layer 
+Hpatches Eval Img Size:  original size
+I       Validation EPE: 72.138038, 1px: 0.000814, 3px: 0.008223, 5px: 0.027029
+II      Validation EPE: 115.050533, 1px: 0.000579, 3px: 0.005276, 5px: 0.014790
+III     Validation EPE: 122.031209, 1px: 0.000603, 3px: 0.005542, 5px: 0.015153
+IV      Validation EPE: 134.171150, 1px: 0.000717, 3px: 0.006053, 5px: 0.015567
+V       Validation EPE: 153.443834, 1px: 0.000471, 3px: 0.004258, 5px: 0.011908
+Avg     Validation EPE: 119.366953, 1px: 0.000645, 3px: 0.005974, 5px: 0.017312
+    last decoder layer
+Hpatches Eval Img Size:  original size
+I       Validation EPE: 511.531697, 1px: 0.000007, 3px: 0.000059, 5px: 0.000360
+II      Validation EPE: 560.728830, 1px: 0.000004, 3px: 0.000036, 5px: 0.000101
+III     Validation EPE: 525.991720, 1px: 0.000003, 3px: 0.000031, 5px: 0.000085
+IV      Validation EPE: 541.204624, 1px: 0.000005, 3px: 0.000042, 5px: 0.000116
+V       Validation EPE: 528.803294, 1px: 0.000004, 3px: 0.000042, 5px: 0.000122
+Avg     Validation EPE: 533.652033, 1px: 0.000005, 3px: 0.000042, 5px: 0.000163
+    avg 12 decoder layers
+Hpatches Eval Img Size:  original size
+I       Validation EPE: 117.318721, 1px: 0.000601, 3px: 0.006199, 5px: 0.021237
+II      Validation EPE: 182.579696, 1px: 0.000360, 3px: 0.003425, 5px: 0.009693
+III     Validation EPE: 186.147296, 1px: 0.000375, 3px: 0.003616, 5px: 0.010257
+IV      Validation EPE: 203.636145, 1px: 0.000394, 3px: 0.003539, 5px: 0.009430
+V       Validation EPE: 236.766780, 1px: 0.000256, 3px: 0.002274, 5px: 0.006477
+Avg     Validation EPE: 185.289728, 1px: 0.000407, 3px: 0.003922, 5px: 0.011845
+
+
+3. Dust3r_hp_camap
+Hpatches Eval Img Size:  original size
+I       Validation EPE: 27.299815, 1px: 0.001140, 3px: 0.010752, 5px: 0.035326
+II      Validation EPE: 50.824363, 1px: 0.000950, 3px: 0.008576, 5px: 0.023791
+III     Validation EPE: 51.086385, 1px: 0.000947, 3px: 0.008793, 5px: 0.024261
+IV      Validation EPE: 60.793256, 1px: 0.000954, 3px: 0.008336, 5px: 0.022531
+V       Validation EPE: 67.524416, 1px: 0.000897, 3px: 0.008027, 5px: 0.022080
+Avg     Validation EPE: 51.505647, 1px: 0.000985, 3px: 0.008977, 5px: 0.025991

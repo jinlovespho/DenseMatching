@@ -179,7 +179,11 @@ class CrossAttention(nn.Module):
         
         attn = attn.softmax(dim=-1)
         if self.softmax_camap:
+            # print('softmax applied')
             attn_tmp = attn.clone().detach()
+        else:
+            # print('no softmax applied')
+            pass
 
         attn = self.attn_drop(attn)
 

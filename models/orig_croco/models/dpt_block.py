@@ -470,6 +470,36 @@ class DPTOutputAdapter(nn.Module):
         path_1 = self.scratch.refinenet1(path_2, layers[0])
 
         # Output head
-        out = self.head(path_1)
+        coarse_flow = self.head(path_1)
+
+        output_shape = (224,224)
+        PH, PW = output_shape[0]//16, output_shape[1]//16
+        C = refined_layered_corr.size(1)
+        refined_layered_corr = refined_layered_corr.permute(0,1,3,2).view(B,C,PH, PW, PH, PW)
+        coarse_uncertainty = self.coarse_uncertainty(refined_layered_corr)
+        bsz, ch, ha, wa, hb, wb = coarse_uncertainty.size()
+        coarse_uncertainty = coarse_uncertainty.view(bsz, ch, ha, wa, -1).mean(dim=-1)
+        
+        FC = corr_uncertainty.size(1)
+        FTH, FTW = corr_uncertainty.size(2), corr_uncertainty.size(3)
+        fine_refined_corr = corr_uncertainty.view(B, FC, FTH, FTW, PH, PW)
+        fine_uncertainty = self.fine_uncertainty(fine_refined_corr)
+        fine_uncertainty = fine_uncertainty.view(B, 3, FTH, FTW, -1).mean(dim=-1)
+        
+        coarse_uncertainty = F.interpolate(coarse_uncertainty, size=output_shape, mode='bilinear', align_corners=False)
+        fine_uncertainty = F.interpolate(fine_uncertainty, size=output_shape, mode='bilinear', align_corners=False)
+        
+        large_log_var_map_coarse = self.constrain_large_log_var_map(torch.tensor(2.0), torch.tensor(0.0), coarse_uncertainty[:,0].unsqueeze(1))
+        small_log_var_map_coarse = torch.ones_like(large_log_var_map_coarse, requires_grad=False) * torch.log(torch.tensor(1.0))
+        log_var_map_coarse = torch.cat((small_log_var_map_coarse, large_log_var_map_coarse), 1)
+        weight_map_coarse = coarse_uncertainty[:,1:]
+        
+        large_log_var_map_fine = self.constrain_large_log_var_map(torch.tensor(2.0), torch.tensor(0.0), fine_uncertainty[:,0].unsqueeze(1))
+        small_log_var_map_fine = torch.ones_like(large_log_var_map_fine, requires_grad=False) * torch.log(torch.tensor(1.0))
+        log_var_map_fine = torch.cat((small_log_var_map_fine, large_log_var_map_fine), 1)
+        weight_map_fine = fine_uncertainty[:,1:]
+
+        return {'flow_estimates': [fine_flow, coarse_flow],
+                    'uncertainty_estimates': [[log_var_map_coarse, weight_map_coarse], [log_var_map_fine, weight_map_fine]]}
 
         return out

@@ -30,12 +30,12 @@
 
 # <stage2_freezeCrocoEnc>
     # (ep15) - /media/dataset3/jinlovespho/ckpt/DenseMatching_final/train_settings/croco/train_croco_dynamic_stage2/pho2,3,4,5_TRAIN_stage2_dpedcocomega_img224_bs8_lr5e5_croco_catseg_freezeCrocoEnc_uncertainty_newweight/CroCoNet_ep0015.pth.tar
-        # hp224 - 
+        # hp224 - Validation EPE: 5.017603, 1px: 0.801022, 3px: 0.946032, 5px: 0.964515
         # hp - zoom23 - Validation EPE: 17.144649, 1px: 0.384079, 3px: 0.804783, 5px: 0.900036
         # eth3d - zoom
 
     # (ep30) - /media/dataset3/jinlovespho/ckpt/DenseMatching_final/train_settings/croco/train_croco_dynamic_stage2/pho2,3,4,5_TRAIN_stage2_dpedcocomega_img224_bs8_lr5e5_croco_catseg_freezeCrocoEnc_uncertainty_newweight/CroCoNet_ep0030.pth.tar
-        # hp224 - 
+        # hp224 - Validation EPE: 5.045419, 1px: 0.809088, 3px: 0.950633, 5px: 0.966805
         # hp - zoom23 - Validation EPE: 15.624423, 1px: 0.412170, 3px: 0.815895, 5px: 0.905636
         # eth3d - zoom
 
@@ -54,7 +54,7 @@
         # hp - zoom23 - EPE: 34.080723, 1px: 0.001648, 3px: 0.016158, 5px: 0.047997
 
 
-CUDA=5
+CUDA=7
 CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py \
     --seed 1997 \
     --dataset hp-224 \
@@ -63,18 +63,18 @@ CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py \
     --model croco_catseg \
     --pre_trained_models croco \
     --croco_ckpt ./pretrained_weights/CroCo_V2_ViTLarge_BaseDecoder.pth \
-    --path_to_pre_trained_models /media/dataset3/honggyu_log/train_settings/croco/train_croco_static_multigpu_2stage/hg0,1,6,7_TRAIN_dpedcocomega_img224_bs12_lr1e3_croco_catseg_uncertainty1e4_newweight/CroCoNet_ep0015.pth.tar \
+    --path_to_pre_trained_models /media/dataset3/honggyu_log/train_settings/croco/train_croco_static_multigpu_2stage/hg0,1,6,7_TRAIN_dpedcocomega_img224_bs12_lr1e3_croco_catseg_uncertainty1e4_newweight/CroCoNet_model_best.pth.tar \
     --output_flow_interp \
     --output_ca_map \
     --softmax_camap \
     --correlation \
     --reciprocity \
     --uncertainty \
-    --save_dir ./vis/eval/hp224_stage2_dpedcocomega_img224_bs12_lr1e3_croco_catseg_uncertainty1e4_newweight_CroCoNet_ep0015 \
+    --save_dir ./vis/eval/hp224_stage2_dpedcocomega_img224_bs12_lr1e3_croco_catseg_uncertainty1e4_newweight_CroCoNet_model_best \
     --log_tool wandb \
     --wandb_path ./ \
     --wandb_proj_name matching_dped \
-    --wandb_exp_name pho_EVAL_hp224_stage2_dpedcocomega_img224_bs12_lr1e3_croco_catseg_uncertainty1e4_newweight_CroCoNet_ep0015 \
+    --wandb_exp_name pho_EVAL_hp224_stage2_dpedcocomega_img224_bs12_lr1e3_croco_catseg_uncertainty1e4_newweight_CroCoNet_model_best \
     --wandb_log_img \
     # --compute_metrics_uncertainty \
     # --plot \

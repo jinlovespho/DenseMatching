@@ -83,6 +83,7 @@ def select_model(model_name, pre_trained_model_type, args, global_optim_iter, lo
             'The pre trained model that you chose does not exist, you chose {}'.format(pre_trained_model_types))
     '''
 
+    weights_already_loaded=False
     estimate_uncertainty = False
     if model_name == 'GLUNet':
         # GLU-Net uses a global feature correlation layer followed by a cyclic consistency post-processing.
@@ -300,12 +301,52 @@ def select_model(model_name, pre_trained_model_type, args, global_optim_iter, lo
         # print('CROCO_CATSEG WEIGHT WELL LOADED: ', msg)
         model.eval()
         network = model.to(device)
+    
+    elif model_name == 'crocov2':
+        from models.croco.croco import CroCoNet
+        from models.croco.croco_downstream import croco_args_from_ckpt, CroCoDownstreamBinocular
+
+        weights_already_loaded = True
+        estimate_uncertainty = args.uncertainty
+
+        # breakpoint()
+        ckpt = torch.load(args.croco_ckpt,'cpu')
+        croco_args = croco_args_from_ckpt(ckpt)
+        croco_args['img_size'] = ((args.model_img_size[0]//32)*32,(args.model_img_size[1]//32)*32)
+        croco_args['args'] = args
+        network = CroCoNet(**croco_args)
+        msg=network.load_state_dict(ckpt['model'], strict=False)
+        print('missing keys: ', msg.missing_keys) # model 에는 있는데 ckpt 에는 없는 것들
+        print('unexpected keys: ', msg.unexpected_keys) # ckpt 에는 있는데 model 에는 없는 것들
+        print('CROCOV2 WEIGHT WELL LOADED: ', msg)
+        network.eval()
+        network = network.to(device)
+
+    elif model_name == 'dust3r':
+        from dust3r.dust3r.model import AsymmetricCroCo3DStereo
+        from dust3r.dust3r.demo import get_args_parser, main_demo, set_print_with_timestamp
+
+        weights_already_loaded = True
+        estimate_uncertainty = False
+
+        network = AsymmetricCroCo3DStereo.from_pretrained(args.croco_ckpt)
+        network.eval()
+        network = network.to(device)
+
+    elif model_name == 'mast3r':
+        from mast3r.mast3r.model import AsymmetricMASt3R
+
+        weights_already_loaded = True
+        estimate_uncertainty = False
+
+        network = AsymmetricMASt3R.from_pretrained(args.croco_ckpt).to(device)
+        network.eval()
+        network = network.to(device)
 
     else:
         print('ERROR!!!! Model Name: ', model_name)
 
 
-    # breakpoint()
     if not weights_already_loaded:
         if path_to_pre_trained_models.endswith('.pth') or path_to_pre_trained_models.endswith('.pth.tar') or path_to_pre_trained_models.endswith('.pt'):    # true
             # if the path already corresponds to a checkpoint path, we use it directly

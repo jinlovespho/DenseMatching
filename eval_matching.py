@@ -90,6 +90,8 @@ def main(args, settings):
             number_of_scenes = 5 + 1
             list_of_outputs = []
             # loop over scenes (1-2, 1-3, 1-4, 1-5, 1-6)
+            print('SUPPL ARGS.CROCO_CKPT: ', args.croco_ckpt)
+            print('SUPPL ARGS.OUTPUT_MODE: ', args.output_mode)
             for id, k in enumerate(range(2, number_of_scenes + 2)):
                 if id == 5:
                     _, test_set = datasets.HPatchesdataset(settings.env.hp,
@@ -121,7 +123,7 @@ def main(args, settings):
             output = run_evaluation_kitti(network, test_dataloader, device,
                                           estimate_uncertainty=estimate_uncertainty, path_to_save=path_to_save,
                                           plot=args.plot, plot_100=args.plot_100,
-                                          plot_ind_images=args.plot_individual_images)
+                                          plot_ind_images=args.plot_individual_images, args=args)
 
         elif args.dataset == 'kitti2015':
             _, test_set = datasets.KITTI_occ(settings.env.kitti2015, source_image_transform=input_transform,
@@ -137,6 +139,7 @@ def main(args, settings):
         elif args.dataset == 'TSS':
             output = {}
             for sub_data in ['FG3DCar', 'JODS', 'PASCAL']:
+                print('evaluating for: ', sub_data)
                 path_to_save_ = os.path.join(path_to_save, sub_data)
                 if not os.path.exists(path_to_save_) and (args.plot or args.plot_100):
                     os.makedirs(path_to_save_)
@@ -149,7 +152,7 @@ def main(args, settings):
                                                   estimate_uncertainty=estimate_uncertainty,
                                                   flipping_condition=args.flipping_condition,
                                                   path_to_save=path_to_save_, plot=args.plot, plot_100=args.plot_100,
-                                                  plot_ind_images=args.plot_individual_images)
+                                                  plot_ind_images=args.plot_individual_images, sub_data=sub_data, args=args)
                 output[sub_data] = results
 
         elif args.dataset == 'PFPascal':
@@ -212,6 +215,7 @@ def main(args, settings):
             raise ValueError('Unknown dataset, {}'.format(args.dataset))
 
         save_dict['{}'.format(pre_trained_model_type)] = output
+        breakpoint()
 
     # log metric to wandb
     if args.log_tool == 'wandb':
@@ -289,6 +293,9 @@ if __name__ == "__main__":
     parser.add_argument('--reciprocity', action='store_true', help='compute reciprocity? default is False')
     parser.add_argument('--uncertainty', action='store_true', help='compute uncertainty? default is False')
     parser.add_argument('--model_img_size', nargs='+', type=int, help='model image size')
+
+    # ablation
+    parser.add_argument('--output_mode', type=str, help='output mode')
 
     # inference 
     parser.add_argument('--dense_zoom_in', action='store_true', help='dense zoom in default is False')

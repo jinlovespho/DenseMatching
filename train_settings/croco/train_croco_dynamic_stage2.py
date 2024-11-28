@@ -29,6 +29,33 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 import datetime
 
+def load_network(net, checkpoint_path=None, **kwargs):
+    """Loads a network checkpoint file.
+    args:
+        net: network architecture
+        checkpoint_path: ~~~.pth.tar
+    outputs:
+        net: loaded network
+    """
+    if not os.path.isfile(checkpoint_path): 
+        raise ValueError('The checkpoint that you chose does not exist, {}'.format(checkpoint_path))
+
+    # Load checkpoint
+    checkpoint_dict = torch.load(checkpoint_path, map_location='cpu')
+
+    if 'state_dict' in checkpoint_dict:
+        checkpoint_dict = checkpoint_dict['state_dict']
+
+    msg=net.load_state_dict(checkpoint_dict, strict=False)
+    print(msg)
+    print('---------------------------------------')
+    print('Weight Loaded from .tar !')
+    print('Checkpoint Path: ', checkpoint_path)
+    print('missing keys: ', msg.missing_keys) # model 에는 있는데 ckpt 에는 없는 것들
+    print('unexpected keys: ', msg.unexpected_keys) # ckpt 에는 있는데 model 에는 없는 것들
+    print('---------------------------------------')
+    return net
+
 def run(settings, args):
     settings.description = 'Train setting for croco on dataset static dataset called DPED-CityScape-ADE'
     settings.data_mode = 'local'
@@ -169,7 +196,8 @@ def run(settings, args):
         croco_args = ckpt_args.croco_args
         model = CroCoDownstreamBinocular(head, **croco_args)
         msg = model.load_state_dict(ckpt['model'], strict=True)
-        if dist.get_rank() == 0: print('CROCO WEIGHT WELL LOADED: ', msg)
+        if dist.get_rank() == 0: print('CROCO INITIAL WEIGHT WELL LOADED: ', msg)
+        model = load_network(model, checkpoint_path=args.path_to_pre_trained_models)
         model = model.to(device)
         model.train()
               

@@ -10,15 +10,6 @@ CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py \
     --croco_ckpt ./pretrained_weights/crocoflow.pth \
     --path_to_pre_trained_models /media/dataset3/jinlovespho/ckpt/DenseMatching_final/train_settings/croco/train_croco_static/pho4_TRAIN_dpedmsk_img224_bs12_lr2e5_crocoflow_finetuning_freezeNone/CroCoDownstreamBinocular_ep0070.pth.tar \
     --save_dir ./vis/eval/hp_dpedmsk_crocoflow_freezeNone_ep0070 \
-    --log_tool wandba \
-    --wandb_path ./ \
-    --wandb_proj_name matching_dped \
-    --wandb_exp_name pho_EVAL_hp_dpedmsk_crocoflow_freezeNone_ep0070 \
-    --wandb_log_img \
-    # --compute_metrics_uncertainty \
-    # --plot \
-    # --plot_100 \
-    # --plot_individual_images \
 
 
 # 1. For evaluating full fine tuned crocoflow on dpedmsk

@@ -18,10 +18,6 @@ from validation.test_parser import define_model_parser, boolean_string
 
 torch.set_grad_enabled(False)
 
-# JLP
-import wandb
-
-
 def main(args, settings):
     # image transformations for the dataset
     co_transform = None
@@ -31,11 +27,6 @@ def main(args, settings):
     save_dir = args.save_dir
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-    # if args.network_type == 'PDCNet' and ('d' not in args.multi_stage_type.lower()):
-    #     # add sub-possibility with mask threshold of internal multi-stage alignment
-    #     save_dir = os.path.join(save_dir, 'mask_for_homo_align_' + args.mask_type)
-    #     if not os.path.exists(save_dir):
-    #         os.makedirs(save_dir)
 
     name_to_save = args.model
     save_dict = {}
@@ -44,13 +35,6 @@ def main(args, settings):
         network, estimate_uncertainty = select_model(
             args.model, pre_trained_model_type, args, args.optim_iter, local_optim_iter,
             path_to_pre_trained_models=args.path_to_pre_trained_models)
-        
-        # logging tool
-        if args.log_tool == 'wandb':
-            wandb.init( project = args.wandb_proj_name,
-                        name = args.wandb_exp_name,
-                        config = args,
-                        dir=args.wandb_path)
 
         # for networks that inherently predict an uncertainty measure, automatically evaluate it. Can optionally
         # evaluate uncertainty based on cyclic consistency error
@@ -86,12 +70,12 @@ def main(args, settings):
                 original_size = False
                 print('Hpatches Eval Img Size: ', args.eval_img_size)
             else:
-                print('Hpatches Eval Img Size: ', 'original size')
+                print('Hpatches Eval Img Size: ', 'Original size')
             number_of_scenes = 5 + 1
             list_of_outputs = []
             # loop over scenes (1-2, 1-3, 1-4, 1-5, 1-6)
-            print('SUPPL ARGS.CROCO_CKPT: ', args.croco_ckpt)
-            print('SUPPL ARGS.OUTPUT_MODE: ', args.output_mode)
+            print('CROCO CKPT NAME: ', args.croco_ckpt)
+            print('CROCO OUTPUT MODE: ', args.output_mode)
             for id, k in enumerate(range(2, number_of_scenes + 2)):
                 if id == 5:
                     _, test_set = datasets.HPatchesdataset(settings.env.hp,
@@ -215,28 +199,6 @@ def main(args, settings):
             raise ValueError('Unknown dataset, {}'.format(args.dataset))
 
         save_dict['{}'.format(pre_trained_model_type)] = output
-        breakpoint()
-
-    # log metric to wandb
-    if args.log_tool == 'wandb':
-        if 'hp' in args.dataset:
-            wandb.log({'hp_metric_scene_1/':output['scene_1']})
-            wandb.log({'hp_metric_scene_2/':output['scene_2']})
-            wandb.log({'hp_metric_scene_3/':output['scene_3']})
-            wandb.log({'hp_metric_scene_4/':output['scene_4']})
-            wandb.log({'hp_metric_scene_5/':output['scene_5']})   
-            wandb.log({'hp_metric_all/':output['all']})
-        elif args.dataset == 'eth3d':
-            wandb.log({'eth3d_metric_rate_3/':output['rate_3']})
-            wandb.log({'eth3d_metric_rate_5/':output['rate_5']})
-            wandb.log({'eth3d_metric_rate_7/':output['rate_7']})
-            wandb.log({'eth3d_metric_rate_9/':output['rate_9']})
-            wandb.log({'eth3d_metric_rate_11/':output['rate_11']})
-            wandb.log({'eth3d_metric_rate_13/':output['rate_13']})
-            wandb.log({'eth3d_metric_rate_15/':output['rate_15']})
-            wandb.log({'eth3d_metric_avg/':output['avg']})
-        print('logged to wandb!!')
-
 
     if 'gocor' in args.model.lower() or 'PDCNet' in args.model:
         name_save_metrics = 'metrics_{}_iter_{}_{}'.format(name_to_save, args.optim_iter, local_optim_iter)
@@ -275,15 +237,8 @@ if __name__ == "__main__":
                         help='path to directory to save the text files and results')
     parser.add_argument('--seed', type=int, default=1984, help='Pseudo-RNG seed')
 
-    # JLP
-    # parser.add_argument('--path_to_pre_trained_models', type=str, help='path to pre-trained models')
     parser.add_argument('--croco_ckpt', type=str, help='path to pretrained crocoflow checkpoint')
-    parser.add_argument('--log_tool', type=str, help='log tool')
-    parser.add_argument('--wandb_path', type=str, help='wandb path')
-    parser.add_argument('--wandb_proj_name', type=str, help='wandb project name')
-    parser.add_argument('--wandb_exp_name', type=str, help='wandb experiment name')
     parser.add_argument('--eval_img_size', nargs='+', type=int, help='evaluation image size')
-    parser.add_argument('--wandb_log_img', action='store_true', help='log images to wandb')
 
     # model
     parser.add_argument('--output_flow_interp', action='store_true', help='output flow interpolation? default is False')
@@ -294,7 +249,6 @@ if __name__ == "__main__":
     parser.add_argument('--uncertainty', action='store_true', help='compute uncertainty? default is False')
     parser.add_argument('--model_img_size', nargs='+', type=int, help='model image size')
 
-    # ablation
     parser.add_argument('--output_mode', type=str, help='output mode')
 
     # inference 

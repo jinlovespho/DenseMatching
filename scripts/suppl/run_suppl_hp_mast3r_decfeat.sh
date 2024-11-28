@@ -1,0 +1,13 @@
+#!/bin/bash
+
+CUDA=0
+CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py \
+    --seed 1997 \
+    --dataset hp \
+    --model_img_size 224 224 \
+    --model mast3r \
+    --pre_trained_models croco \
+    --croco_ckpt ./pretrained_weights/MASt3R_ViTLarge_BaseDecoder_512_catmlpdpt_metric.pth \
+    --output_mode dec_feat \
+    --save_dir ./vis/suppl/hp/dec_feat \
+

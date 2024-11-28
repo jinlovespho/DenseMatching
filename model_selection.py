@@ -29,28 +29,15 @@ def load_network(net, checkpoint_path=None, **kwargs):
         checkpoint_dict = checkpoint_dict['state_dict']
 
     msg=net.load_state_dict(checkpoint_dict, strict=False)
-    print(msg)
     print('---------------------------------------')
-    print('Weight Loaded from .tar !')
+    print(msg)
     print('Checkpoint Path: ', checkpoint_path)
-    print('missing keys: ', msg.missing_keys) # model 에는 있는데 ckpt 에는 없는 것들
-    print('unexpected keys: ', msg.unexpected_keys) # ckpt 에는 있는데 model 에는 없는 것들
     print('---------------------------------------')
     return net
 
-
-# model_type = ['GLUNet', 'GLUNet_interp',
-#               'GLUNet_GOCor', 'PWCNet', 'PWCNet_GOCor',
-#               'GLUNet_GOCor_star', 'PDCNet', 'PDCNet_plus',
-#               'GLUNet_star', 'WarpCGLUNet', 'SemanticGLUNet', 'WarpCSemanticGLUNet', 'WarpCGLUNet_interp',
-#               'UAWarpC',
-#               'SFNet', 'PWarpCSFNet_WS', 'PWarpCSFNet_SS', 'NCNet', 'PWarpCNCNet_WS', 'PWarpCNCNet_SS',
-#               'CATs', 'PWarpCCATs_SS', 'CATs_ft_features', 'PWarpCCATs_ft_features_SS',
-#               ]
 pre_trained_model_types = ['static', 'dynamic', 'chairs_things', 'chairs_things_ft_sintel', 'megadepth',
                            'megadepth_stage1', 'pfpascal', 'spair']
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 
 def select_model(model_name, pre_trained_model_type, args, global_optim_iter, local_optim_iter,
                  path_to_pre_trained_models=None):
@@ -67,24 +54,14 @@ def select_model(model_name, pre_trained_model_type, args, global_optim_iter, lo
     """
 
     weights_already_loaded=False
+    estimate_uncertainty = False
 
     print('Model: {}\nPre-trained-model Type: {}'.format(model_name, pre_trained_model_type))
-    # if model_name not in model_type:
-    #     raise ValueError(
-    #         'The model that you chose does not exist, you chose {}'.format(model_name))
 
     if 'GOCor' in model_name or 'PDCNet' in model_name:
         print('GOCor: Local iter {}'.format(local_optim_iter))
         print('GOCor: Global iter {}'.format(global_optim_iter))
-
-    '''
-    if pre_trained_model_type not in pre_trained_model_types:
-        raise ValueError(
-            'The pre trained model that you chose does not exist, you chose {}'.format(pre_trained_model_types))
-    '''
-
-    weights_already_loaded=False
-    estimate_uncertainty = False
+    
     if model_name == 'GLUNet':
         # GLU-Net uses a global feature correlation layer followed by a cyclic consistency post-processing.
         # local cost volumes are computed by feature correlation layers
@@ -222,6 +199,7 @@ def select_model(model_name, pre_trained_model_type, args, global_optim_iter, lo
         # similar to original work, we use softargmax as the inference_strategy. This is because the kp loss is the
         # EPE after applying softargmax.
         network = CATs(forward_pass_strategy='flow_prediction', inference_strategy='softargmax')
+
     # JLP
     elif model_name == 'crocoflow':
         from models.orig_croco.models.croco_downstream import CroCoDownstreamBinocular
@@ -351,14 +329,14 @@ def select_model(model_name, pre_trained_model_type, args, global_optim_iter, lo
         if path_to_pre_trained_models.endswith('.pth') or path_to_pre_trained_models.endswith('.pth.tar') or path_to_pre_trained_models.endswith('.pt'):    # true
             # if the path already corresponds to a checkpoint path, we use it directly
             checkpoint_fname = path_to_pre_trained_models
-        else:   # false
+        else:  
             # it is the path to the directory containing all checkpoints.
             checkpoint_fname = osp.join(path_to_pre_trained_models, model_name + '_{}'.format(pre_trained_model_type)
                                         + '.pth')
             if not os.path.exists(checkpoint_fname):
                 checkpoint_fname = checkpoint_fname + '.tar'
 
-        if not os.path.exists(checkpoint_fname):    # false
+        if not os.path.exists(checkpoint_fname):    
             raise ValueError('The checkpoint that you chose does not exist, {}'.format(checkpoint_fname))
 
         network = load_network(network, checkpoint_path=checkpoint_fname)

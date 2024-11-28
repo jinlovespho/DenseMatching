@@ -240,7 +240,6 @@ def run_evaluation_kitti(network, test_dataloader, device, estimate_uncertainty=
         flow_gt = mini_batch['flow_map'].to(device)  # 1 2 376 1241
         mask_valid = mini_batch['correspondence_mask'].to(device)   # 1 376 1241
         
-        breakpoint()
         source_img = source_img.float().to(device)
         target_img = target_img.float().to(device)
         _, _, orig_H, orig_W = source_img.shape
@@ -270,7 +269,6 @@ def run_evaluation_kitti(network, test_dataloader, device, estimate_uncertainty=
             # flow_gt[:,0,:,:] *= W_32/flow_gt_w
             # flow_gt[:,1,:,:] *= H_32/flow_gt_h
 
-        breakpoint()
         if args.dense_zoom_in:
             flow_est, uncertainty_est = network.zoom_in_batch(img_s, img_t, zoom_ratio=args.dense_zoom_ratio, optimize=False, homo_only=False, batch_size=1)
             print('dense zoom in')
@@ -294,8 +292,6 @@ def run_evaluation_kitti(network, test_dataloader, device, estimate_uncertainty=
         save_image(mask_valid.float(), f'kitti2012_img_mask.jpg', normalize=True)
         warped_source_gt = warp(img_s, flow_gt.float())  
         save_image(warped_source_gt, f'kitti2012_img_warped_src_gt.jpg', normalize=True)
-
-        breakpoint()
 
         if estimate_uncertainty:
             flow_est, uncertainty_est = network.estimate_flow_and_confidence_map(source_img, target_img)
@@ -501,26 +497,11 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
                 camap1 = [attn.mean(dim=1).detach() for attn in camap1]   # b 196 196
                 camap2 = [attn.mean(dim=1).detach() for attn in camap2]   # avg heads
 
-                ## heuristic attention visualize
-                # for j in range(len(camap1)):
-                #     print(camap1[j].argmax(dim=-1))
-                # print('-'*50)
-                # for j in range(len(camap2)):
-                #     print(camap2[j].argmax(dim=-1))
-                # breakpoint()
-
                 ## heuristic atttention refine
                 for i in range(len(camap1)):
                     camap1[i][:,:,0]=camap1[i].min()
                 for i in range(len(camap2)):
                     camap2[i][:,:,0]=camap2[i].min()
-
-                # for j in range(len(camap1)):
-                #     print(camap1[j].argmax(dim=-1))
-                # print('-'*50)
-                # for j in range(len(camap2)):
-                #     print(camap2[j].argmax(dim=-1))
-                # breakpoint()
 
                 camap1 = torch.stack(camap1, dim=1)
                 camap2 = torch.stack(camap2, dim=1)
@@ -542,8 +523,6 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
             flow_est[:,0,:,:] *= W/feature_size
             flow_est[:,1,:,:] *= H/feature_size 
 
-        # evaluation protocol
-        # eval_img_size -> resize input img to 224 -> model's output_flow 224 -> 
         elif args.model == 'dust3r' or args.model == 'mast3r':
             
             H_32, W_32 = args.model_img_size
@@ -606,25 +585,10 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
                 camap1 = [attn.mean(dim=1).detach() for attn in camap1]   # b 196 196
                 camap2 = [attn.mean(dim=1).detach() for attn in camap2]   # avg heads
 
-                ## heuristic attention visualize
-                # for j in range(len(camap1)):
-                #     print(camap1[j].argmax(dim=-1))
-                # print('-'*50)
-                # for j in range(len(camap2)):
-                #     print(camap2[j].argmax(dim=-1))
-                # breakpoint()
-
                 for i in range(len(camap1)):
                     camap1[i][:,:,0]=camap1[i].min()
                 for i in range(len(camap2)):
                     camap2[i][:,:,0]=camap2[i].min()
-
-                # for j in range(len(camap1)):
-                #     print(camap1[j].argmax(dim=-1))
-                # print('-'*50)
-                # for j in range(len(camap2)):
-                #     print(camap2[j].argmax(dim=-1))
-                # breakpoint()
 
                 camap1 = torch.stack(camap1, dim=1)
                 camap2 = torch.stack(camap2, dim=1)
@@ -684,7 +648,6 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
             save_image(warped_source_gt, f'{save_path}/{i_batch}_img_warped_src_gt.jpg', normalize=True)
             save_image(warped_source_est*mask_valid_orig, f'{save_path}/{i_batch}_img_warped_src_est.jpg', normalize=True)
         ##################################################################################
-        # breakpoint()
 
         flow_est = flow_est.permute(0, 2, 3, 1)[mask_valid]
         flow_gt = flow_gt.permute(0, 2, 3, 1)[mask_valid]

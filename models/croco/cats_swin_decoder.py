@@ -16,11 +16,9 @@ from models.croco.mod import FeatureL2Norm, unnormalise_and_convert_mapping_to_f
 from models.croco.SCOT.rhm_map import rhm
 from models.croco.SCOT.geometry import gaussian2d, center, receptive_fields
 from einops import rearrange, repeat
-from timm.layers import to_2tuple
 
 ## uncertainty
 from models.croco.conv4d_coponerf import Conv4d
-# import xformers.ops as xops
 
 import sys
 import pdb
@@ -158,44 +156,11 @@ class Mlp(nn.Module):
         x = self.fc2(x)
         x = self.drop(x)
         return x
-
-
-def elu_feature_map(x):
-    return torch.nn.functional.elu(x) + 1
-
-class LinearAttention(nn.Module):
-    def __init__(self, eps=1e-6):
-        super().__init__()
-        self.feature_map = elu_feature_map
-        self.eps = eps
-
-    def forward(self, queries, keys, values):
-        """ Multi-Head linear attention proposed in "Transformers are RNNs"
-        Args:
-            queries: [N, L, H, D]
-            keys: [N, S, H, D]
-            values: [N, S, H, D]
-            q_mask: [N, L]
-            kv_mask: [N, S]
-        Returns:
-            queried_values: (N, L, H, D)
-        """
-        Q = self.feature_map(queries)
-        K = self.feature_map(keys)
-
-        v_length = values.size(1)
-        values = values / v_length  # prevent fp16 overflow
-        KV = torch.einsum("nshd,nshv->nhdv", K, values)  # (S,D)' @ S,V
-        Z = 1 / (torch.einsum("nlhd,nhd->nlh", Q, K.sum(dim=1)) + self.eps)
-        queried_values = torch.einsum("nlhd,nhdv,nlh->nlhv", Q, KV, Z) * v_length
-
-        return queried_values.contiguous()
-
+        
 class Attention(nn.Module):
-    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0., attention_type='linear'):
+    def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.):
         super().__init__()
-
-        self.num_heads = num_heads  # 6
+        self.num_heads = num_heads
         head_dim = dim // num_heads
         # NOTE scale factor was wrong in my original version, can set manually to be compat with prev weights
         self.scale = qk_scale or head_dim ** -0.5
@@ -205,55 +170,17 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
-        # JLP
-        self.attention_type = attention_type
-        if attention_type == 'linear':
-            self.linear_attn = LinearAttention()
-
     def forward(self, x):
-        B, N, C = x.shape   # 1960 13 324
-        # ForkedPdb().set_trace()
-        # 3 B H N C//H
+        B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
-        q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)    # b h l d = b 6 13 54
+        q, k, v = qkv[0], qkv[1], qkv[2]   # make torchscript happy (cannot use tensor as tuple)
 
-        if self.attention_type == 'linear':
-            q = q.permute(0,2,1,3)  # b l h d//h
-            k = k.permute(0,2,1,3)
-            v = v.permute(0,2,1,3)  
-            x = self.linear_attn(q, k, v) # b l h d//h
-            x = x.reshape(B, N, C)  # b l d
+        attn = (q @ k.transpose(-2, -1)) * self.scale
+        attn = attn.softmax(dim=-1)
+        attn = self.attn_drop(attn)
 
-        elif self.attention_type == 'efficient_full':
-            q = q.permute(0,2,1,3)  # b l h d//h
-            k = k.permute(0,2,1,3)
-            v = v.permute(0,2,1,3)  
-            # x = xops.memory_efficient_attention(q, k, v)
-            '''
-                error msg
-                query       : shape=(1960, 13, 6, 54) (torch.float32)
-                key         : shape=(1960, 13, 6, 54) (torch.float32)
-                value       : shape=(1960, 13, 6, 54) (torch.float32)
-                attn_bias   : <class 'NoneType'>
-                p           : 0.0
-
-            `fa2F@v2.5.7-pt` is not supported because:
-                dtype=torch.float32 (supported: {torch.bfloat16, torch.float16})
-                query.shape[-1] % 8 != 0
-            `cutlassF-pt` is not supported because:
-                query.shape[-1] % 4 != 0
-                value.shape[-1] % 4 != 0
-            '''
-            x = x.reshape(B, N, C)  # b l d
-
-        else:
-            attn = (q @ k.transpose(-2, -1)) * self.scale   # 1960 6 13 13
-            attn = attn.softmax(dim=-1) # 1960 6 13 13
-            attn = self.attn_drop(attn)
-
-            x = (attn @ v).transpose(1, 2).reshape(B, N, C) # 1960 13 324
-
-        x = self.proj(x)    # 1960 13 324
+        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        x = self.proj(x)
         x = self.proj_drop(x)
         return x
 
@@ -377,30 +304,17 @@ class SwinTransformerBlock(nn.Module):
 class MultiscaleBlock(nn.Module):
 
     def __init__(self, dim, embed_dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, img_size=14, num_hyperpixel=13):
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, img_size=14, num_hyperpixel=13, window_size=7):
         super().__init__()
-
-        # ForkedPdb().set_trace()
-        if img_size == 32:  
-            # total_img_size 32 * 16 = 512 
-            window_size=8
-            num_heads=8
-        elif img_size == 24:
-            # total_img_size 24 * 16 = 384
-            window_size=6
-            num_heads=8
-        elif img_size == 14:
-            # total_img_size 14 * 16 = 224
-            window_size=7
-            num_heads=6
-
+        # self.attn = Attention(
+        #     dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
         self.block_1 = SwinTransformerBlock(dim, embed_dim, (img_size,img_size), num_heads=num_heads, head_dim=None, window_size=window_size, shift_size=0, num_hyperpixel=num_hyperpixel)
         self.block_2 = SwinTransformerBlock(dim, embed_dim, (img_size,img_size), num_heads=num_heads, head_dim=None, window_size=window_size, shift_size=window_size // 2, num_hyperpixel=num_hyperpixel)
         
         self.attn_multiscale = Attention(
-            dim+embed_dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop, attention_type='linear')
-
-
+            dim+embed_dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+        # self.attn_multiscale2 = Attention(
+        #     dim+embed_dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
         # NOTE: drop path for stochastic depth, we shall see if this is better than dropout here
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm1 = norm_layer(dim+embed_dim)
@@ -411,21 +325,56 @@ class MultiscaleBlock(nn.Module):
         self.mlp = Mlp(in_features=dim+embed_dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
         self.mlp2 = Mlp(in_features=dim+embed_dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
         
+        
 
     def forward(self, x):
         '''
         Multi-level aggregation
         '''
-        B, N, H, W = x.shape    # b 13 196 324
+        B, N, H, W = x.shape
         if N == 1:
             x = x.flatten(0, 1)
             x = x + self.drop_path(self.attn(self.norm1(x)))
             x = x + self.drop_path(self.mlp(self.norm2(x)))
             return x.view(B, N, H, W)
         
-        x = x.flatten(0, 1) # b*13 196 324
+        x = x.flatten(0, 1)
         x = self.block_1(x)
-        x = self.block_2(x) # b*13 196 324
+
+        
+        x = x.view(B, N, H, -1).transpose(1, 2).flatten(0, 1)   
+        x = x + self.drop_path(self.attn_multiscale(self.norm1(x)))
+        x = x.view(B, H, N, -1).transpose(1, 2).flatten(0, 1)
+        x = x + self.drop_path(self.mlp(self.norm2(x)))
+        x = x.view(B, N, H, -1)
+        
+        
+        x = x.flatten(0, 1)        
+        
+        x = self.block_2(x)
+        x = x.view(B, N, H, -1).transpose(1, 2).flatten(0, 1) 
+        x = x + self.drop_path(self.attn_multiscale2(self.norm3(x)))
+        x = x.view(B, H, N, -1).transpose(1, 2).flatten(0, 1)
+        x = x + self.drop_path(self.mlp2(self.norm4(x)))
+        x = x.view(B, N, H, -1)
+        
+
+        return x
+
+    def forward(self, x):
+        '''
+        Multi-level aggregation
+        '''
+        B, N, H, W = x.shape
+        if N == 1:
+            x = x.flatten(0, 1)
+            x = x + self.drop_path(self.attn(self.norm1(x)))
+            x = x + self.drop_path(self.mlp(self.norm2(x)))
+            return x.view(B, N, H, W)
+        
+        x = x.flatten(0, 1)
+        x = self.block_1(x)
+        x = self.block_2(x)
 
         x = x.view(B, N, H, -1).transpose(1, 2).flatten(0, 1)   
         x = x + self.drop_path(self.attn_multiscale(self.norm1(x)))
@@ -438,7 +387,7 @@ class MultiscaleBlock(nn.Module):
 
 class TransformerAggregator(nn.Module):
     def __init__(self, num_hyperpixel, dim, img_size=224, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4., qkv_bias=True, qk_scale=None,
-                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=None):
+                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=None, window_size = 7):
         super().__init__()
         self.img_size = img_size
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
@@ -453,7 +402,7 @@ class TransformerAggregator(nn.Module):
         self.blocks = nn.Sequential(*[
             MultiscaleBlock(
                 dim=dim, embed_dim = embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
-                drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, img_size=img_size, num_hyperpixel=num_hyperpixel)
+                drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, img_size=img_size, num_hyperpixel=num_hyperpixel, window_size = window_size)
             for i in range(2)])
         self.proj = nn.Linear(embed_dim+dim, img_size ** 2)
         self.norm = norm_layer(embed_dim)
@@ -475,7 +424,6 @@ class TransformerAggregator(nn.Module):
     def forward(self, attn_maps, source_feat):
         B = attn_maps.shape[0]
         x = attn_maps.clone()
-        
         pos_embed = torch.cat((self.pos_embed_x.repeat(1, 1, self.img_size, 1, 1), self.pos_embed_y.repeat(1, 1, 1, self.img_size, 1)), dim=4)
         pos_embed = pos_embed.flatten(2, 3)
         x = torch.cat((x, source_feat), dim=3) + pos_embed
@@ -539,9 +487,10 @@ class CATs_SWIN_Decoder(nn.Module):
         self.reciprocity = args.reciprocity
         self.correlation = args.correlation
         self.output_flow_interp = args.output_flow_interp
-        self.uncertainty = args.uncertainty
+        self.args = args
+        self.window_size = args.window_size
 
-        self.feature_size = feature_size    # number of patches =  img_size_h // patch_size_h
+        self.feature_size = feature_size
         self.feature_proj_dim = feature_proj_dim
         self.decoder_embed_dim = self.feature_size + self.feature_proj_dim
 
@@ -559,11 +508,10 @@ class CATs_SWIN_Decoder(nn.Module):
             nn.Linear(channels[i], self.feature_proj_dim) for i in hyperpixel_ids
         ])
 
-        # ForkedPdb().set_trace()
         self.decoder = TransformerAggregator(
             img_size=self.feature_size, dim = self.feature_size**2, embed_dim=self.feature_proj_dim, depth=depth, num_heads=num_heads,
             mlp_ratio=mlp_ratio, qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6),
-            num_hyperpixel=len(hyperpixel_ids))
+            num_hyperpixel=len(hyperpixel_ids), window_size = self.window_size)
             
         self.l2norm = FeatureL2Norm()
     
@@ -590,9 +538,9 @@ class CATs_SWIN_Decoder(nn.Module):
         self.decoder1 = Up(len(hyperpixel_ids), decoder_dims[0], decoder_guidance_proj_dims[0], intermediate_dim=16)
         self.decoder2 = Up(decoder_dims[0], decoder_dims[1], decoder_guidance_proj_dims[1], intermediate_dim=32)
         self.head = nn.Conv2d(decoder_dims[1], 1, kernel_size=3, stride=1, padding=1)
-
+        
         ## Uncertainty
-        if self.uncertainty:
+        if args.uncertainty:
             self.coarse_uncertainty = nn.Sequential(
                 Conv4d(in_channels=13, out_channels=16, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
                 nn.GroupNorm(4,16),
@@ -614,6 +562,32 @@ class CATs_SWIN_Decoder(nn.Module):
                 Conv4d(in_channels=16, out_channels=3, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
                 nn.ReLU(),
             )
+            
+        if args.uncertainty_loss:
+            self.coarse_uncertainty = nn.Sequential(
+                Conv4d(in_channels=13, out_channels=16, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
+                nn.GroupNorm(4,16),
+                nn.ReLU(),
+                Conv4d(in_channels=16, out_channels=16, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
+                nn.GroupNorm(4,16),
+                nn.ReLU(),
+                Conv4d(in_channels=16, out_channels=1, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
+                nn.ReLU(),
+                )
+            
+            self.fine_uncertainty = nn.Sequential(
+                Conv4d(in_channels=32, out_channels=16, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
+                nn.GroupNorm(4,16),
+                nn.ReLU(),
+                Conv4d(in_channels=16, out_channels=16, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
+                nn.GroupNorm(4,16),
+                nn.ReLU(),
+                Conv4d(in_channels=16, out_channels=1, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
+                nn.ReLU(),
+            )
+            
+            self.sigmoid = nn.Sigmoid()
+            
         
         
     def softmax_with_temperature(self, x, beta, d = 1):
@@ -762,9 +736,11 @@ class CATs_SWIN_Decoder(nn.Module):
 
         coarse_flow = torch.cat((grid_x, grid_y), dim=1)
         coarse_flow = unnormalise_and_convert_mapping_to_flow(coarse_flow)
-        h, w = coarse_flow.shape[-2:]
+
+        
+        h, w = coarse_flow.shape[-2:]   # 14 14 
         if self.output_flow_interp:
-            coarse_flow = F.interpolate(coarse_flow, size=output_shape, mode='bilinear', align_corners=False)
+            coarse_flow = F.interpolate(coarse_flow, size=output_shape, mode='bilinear', align_corners=False)   # b 2 224 224
             coarse_flow[:, 0] *= float(output_shape[1]) / float(w)
             coarse_flow[:, 1] *= float(output_shape[0]) / float(h)
             
@@ -783,8 +759,28 @@ class CATs_SWIN_Decoder(nn.Module):
         
         fine_flow = torch.cat((fine_gridx, fine_gridy), dim=1)
         fine_flow = unnormalise_and_convert_mapping_to_flow(fine_flow)
-
-        if self.uncertainty:
+        
+        if self.args.uncertainty and self.args.uncertainty_loss:
+            PH, PW = output_shape[0]//16, output_shape[1]//16
+            C = refined_layered_corr.size(1)
+            refined_layered_corr = refined_layered_corr.permute(0,1,3,2).view(B,C,PH, PW, PH, PW)
+            coarse_uncertainty = self.coarse_uncertainty(refined_layered_corr)
+            bsz, ch, ha, wa, hb, wb = coarse_uncertainty.size()
+            coarse_uncertainty = coarse_uncertainty.view(bsz, ch, ha, wa, -1).mean(dim=-1)
+            
+            FC = corr_uncertainty.size(1)
+            FTH, FTW = corr_uncertainty.size(2), corr_uncertainty.size(3)
+            fine_refined_corr = corr_uncertainty.view(B, FC, FTH, FTW, PH, PW)
+            fine_uncertainty = self.fine_uncertainty(fine_refined_corr)
+            fine_uncertainty = fine_uncertainty.view(B, 1, FTH, FTW, -1).mean(dim=-1)
+            
+            coarse_uncertainty = F.interpolate(coarse_uncertainty, size=output_shape, mode='bilinear', align_corners=False)
+            fine_uncertainty = F.interpolate(fine_uncertainty, size=output_shape, mode='bilinear', align_corners=False)
+            
+            coarse_uncertainty = self.sigmoid(coarse_uncertainty)
+            fine_uncertainty = self.sigmoid(fine_uncertainty)
+            
+        elif self.args.uncertainty:
             PH, PW = output_shape[0]//16, output_shape[1]//16
             C = refined_layered_corr.size(1)
             refined_layered_corr = refined_layered_corr.permute(0,1,3,2).view(B,C,PH, PW, PH, PW)
@@ -810,15 +806,20 @@ class CATs_SWIN_Decoder(nn.Module):
             small_log_var_map_fine = torch.ones_like(large_log_var_map_fine, requires_grad=False) * torch.log(torch.tensor(1.0))
             log_var_map_fine = torch.cat((small_log_var_map_fine, large_log_var_map_fine), 1)
             weight_map_fine = fine_uncertainty[:,1:]
-
-        h, w = fine_flow.shape[-2:]
+            
+        
+        h, w = fine_flow.shape[-2:] # 56,56 
         if self.output_flow_interp:
             fine_flow = F.interpolate(fine_flow, size=output_shape, mode='bilinear', align_corners=False)
             fine_flow[:, 0] *= float(output_shape[1]) / float(w)
             fine_flow[:, 1] *= float(output_shape[0]) / float(h)
 
-        if self.uncertainty:
+        ForkedPdb().set_trace()
+        if self.args.uncertainty and self.args.uncertainty_loss:
+            return {'flow_estimates': [fine_flow, coarse_flow],
+                    'uncertainty_estimates': [fine_uncertainty, coarse_uncertainty]}
+        elif self.args.uncertainty:
             return {'flow_estimates': [fine_flow, coarse_flow],
                     'uncertainty_estimates': [[log_var_map_coarse, weight_map_coarse], [log_var_map_fine, weight_map_fine]]}
-        
+            
         return [fine_flow, coarse_flow]

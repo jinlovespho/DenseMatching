@@ -13,6 +13,22 @@ from utils_flow.flow_and_mapping_operations import get_gt_correspondence_mask, c
 from utils_data.io import load_flo
 from utils_flow.img_processing_utils import define_mask_zero_borders
 
+import sys
+import pdb
+
+class ForkedPdb(pdb.Pdb):
+    """
+    PDB Subclass for debugging multi-processed code
+    Suggested in: https://stackoverflow.com/questions/4716533/how-to-attach-debugger-to-a-python-subproccess
+    """
+    def interaction(self, *args, **kwargs):
+        _stdin = sys.stdin
+        try:
+            sys.stdin = open('/dev/stdin')
+            pdb.Pdb.interaction(self, *args, **kwargs)
+        finally:
+            sys.stdin = _stdin
+
 
 def default_loader(root, path_imgs, path_flo):
     imgs = [os.path.join(root, path) for path in path_imgs]
@@ -151,6 +167,7 @@ class ListDataset(data.Dataset):
             flow = self.flow_transform(flow)
             
         if self.img_size is not None:
+            # ForkedPdb().set_trace()
             inputs[0] = F.interpolate(inputs[0].unsqueeze(0), size=self.img_size, mode='bilinear', align_corners=False).squeeze(0)
             inputs[1] = F.interpolate(inputs[1].unsqueeze(0), size=self.img_size, mode='bilinear', align_corners=False).squeeze(0)
             flow_h,flow_w = flow.shape[1],flow.shape[2]

@@ -2,6 +2,8 @@ from termcolor import colored
 import torch.optim as optim
 import torchvision.transforms as transforms
 import torch.optim.lr_scheduler as lr_scheduler
+from PIL import Image
+
 
 
 from utils_data.image_transforms import ArrayToTensor
@@ -18,6 +20,9 @@ from datasets.object_augmented_dataset import MSCOCO, AugmentedImagePairsDataset
 from datasets.object_augmented_dataset.synthetic_object_augmentation_for_pairs_multiple_ob import RandomAffine
 from datasets.MegaDepth.megadepth import MegaDepthDataset
 from datasets.mixture_of_datasets import MixDatasets
+from utils_flow.util_optical_flow import flow_to_image
+from utils_flow.pixel_wise_mapping import warp
+
 
 # JLP
 import os
@@ -27,6 +32,7 @@ from torch.utils.data import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.distributed as dist
 import datetime
+import torchvision
 
 def load_network(net, checkpoint_path=None, **kwargs):
     """Loads a network checkpoint file.
@@ -46,7 +52,7 @@ def load_network(net, checkpoint_path=None, **kwargs):
         checkpoint_dict = checkpoint_dict['state_dict']
 
     msg=net.load_state_dict(checkpoint_dict, strict=False)
-    print(msg)
+    # print(msg)
     print('---------------------------------------')
     print('Weight Loaded from .tar !')
     print('Checkpoint Path: ', checkpoint_path)
@@ -76,12 +82,10 @@ def run(settings, args):
         
         print('| distributed init (rank {}): {}, gpu {}'.format(args.rank, args.dist_url, args.gpu), flush=True)
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
-                                            world_size=args.world_size, rank=args.rank) #, timeout=datetime.timedelta(minutes=10))   
+                                            world_size=args.world_size, rank=args.rank) #, timeout=datetime.timedelta(minutes=10))
         assert dist.is_available() and dist.is_initialized(), 'Distributed training has not been initialized'
-        if dist.get_rank() == 0:
-            print('distributed training has been WELL initialized')
-            print("DDP training working!!!")
-
+        print('distributed training has been WELL initialized')
+    
     # 0. Set device
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -131,7 +135,7 @@ def run(settings, args):
         foreground_image_dataset=coco_dataset_train, background_image_dataset=train_dataset_,
         foreground_transform=fg_tform, source_image_transform=source_img_transforms,
         target_image_transform=target_img_transforms, flow_transform=flow_transform,
-        co_transform=co_transform, number_of_objects=settings.nbr_objects, image_size=args.img_size,
+        co_transform=co_transform, number_of_objects=settings.nbr_objects, image_size=(224,224),
         compute_object_reprojection_mask=settings.compute_object_reprojection_mask)
 
     # 2nd training dataset: MegaDepth data
@@ -139,15 +143,29 @@ def run(settings, args):
 
     megadepth_cfg = {'scene_info_path': os.path.join(settings.env.megadepth_training, 'scene_info'),
                      'train_num_per_scene': 300, 'val_num_per_scene': 25,
-                     'output_image_size': args.img_size, 'pad_to_same_shape': True,
-                     'output_flow_size': [args.img_size, args.img_size]}
+                     'output_image_size': [224, 224], 'pad_to_same_shape': True,
+                     'output_flow_size': [[224, 224], [224, 224]]}
     training_dataset_megadepth = MegaDepthDataset(root=settings.env.megadepth_training, cfg=megadepth_cfg,
                                                   source_image_transform=source_img_transforms,
                                                   target_image_transform=source_img_transforms,
                                                   flow_transform=flow_transform, co_transform=co_transform,
                                                   split='train', store_scene_info_in_memory=False)
+    
+    # data = training_dataset_megadepth[1]
+    # data = training_dataset_megadepth[0]
+    # torchvision.utils.save_image(data['source_image']/255., 'source_image.png')
+    # torchvision.utils.save_image(data['target_image']/255., 'target_image.png')
+    # torchvision.utils.save_image(data['occlusion_mask'][0].float(), 'occlusion_mask.png')
+    # torchvision.utils.save_image(data['occlusion_mask'][0]*(data['source_image']/255.), 'occlusion_masked_source_image.png')
+    # torchvision.utils.save_image(data['occlusion_mask'][0]*(data['target_image']/255.), 'occlusion_masked_target_image.png')
+    # flow_vis = flow_to_image(data['flow_map'][0].permute(1,2,0).numpy())
+    # flow_fw = Image.fromarray(flow_vis)
+    # flow_fw.save('./flow_fw.png')
+    # warped_target = warp(data['source_image'].unsqueeze(dim=0)/255., data['flow_map'][0].unsqueeze(dim=0))
+    # torchvision.utils.save_image(warped_target, 'warped_target.png')
+    # torchvision.utils.save_image(warped_target * data['occlusion_mask'][0], 'masked_warped_target.png')
+        
     # put store_scene_info_in_memory to True if more than 55GB of cpu memory is available. Sampling will be faster
-
     # final training dataset: combination of both previous datasets
     train_dataset = MixDatasets(list_of_datasets=[train_dataset_dynamic, training_dataset_megadepth],
                                 list_overwrite_mask=[False, False], list_sparse=[False, True])
@@ -188,15 +206,17 @@ def run(settings, args):
         num_channels = {'stereo': 1, 'flow': 2}[task]   # 2
         with_conf = True
         if with_conf: num_channels += 1
-        if dist.get_rank() == 0: print('head: PixelwiseTaskWithDPT()')
+        if dist.get_rank() == 0:
+            print('head: PixelwiseTaskWithDPT()')
         head = PixelwiseTaskWithDPT()
         head.num_channels = num_channels
-        if dist.get_rank() == 0: print('croco_args:', ckpt_args.croco_args)
+        if dist.get_rank() == 0:
+            print('croco_args:', ckpt_args.croco_args)
         croco_args = ckpt_args.croco_args
         model = CroCoDownstreamBinocular(head, **croco_args)
         msg = model.load_state_dict(ckpt['model'], strict=True)
-        if dist.get_rank() == 0: print('CROCO INITIAL WEIGHT WELL LOADED: ', msg)
-        model = load_network(model, checkpoint_path=args.path_to_pre_trained_models)
+        if dist.get_rank() == 0:
+            print('CROCO WEIGHT WELL LOADED: ', msg)
         model = model.to(device)
         model.train()
               
@@ -210,21 +230,17 @@ def run(settings, args):
         croco_args['args'] = args
         model = CroCoNet(**croco_args)
         msg=model.load_state_dict(ckpt['model'], strict=False)
-        if dist.get_rank() == 0: print('CROCO WEIGHT WELL LOADED: ', msg)
+        if dist.get_rank() == 0:
+            print('CROCO WEIGHT WELL LOADED: ', msg)
         model = model.to(device)
         model.train()
         
-        if args.path_to_pre_trained_models is not None:
-            pretrained_ckpt = torch.load(args.path_to_pre_trained_models, 'cpu')
-            msg=model.load_state_dict(pretrained_ckpt['state_dict'], strict=False)
-            if dist.get_rank() == 0:
-                print('---'*50)
-                print('Stage1 Weight Loaded from .tar !')
-                print('Stage1 pretrained model path: ', args.path_to_pre_trained_models)
-                print('missing keys: ', msg.missing_keys) # model 에는 있는데 ckpt 에는 없는 것들
-                print('unexpected keys: ', msg.unexpected_keys) # ckpt 에는 있는데 model 에는 없는 것들
-                print('---'*50)
-    
+        if settings.pretrained_path is not None:
+            print('Loading pretrained model from: ', settings.pretrained_path)
+            pretrained_ckpt = torch.load(settings.pretrained_path, 'cpu')
+            model.load_state_dict(pretrained_ckpt['state_dict'], strict=False)
+            print('Pretrained model loaded!')
+        
     elif args.model == 'crocov2':
         from models.croco.croco import CroCoNet
         from models.croco.croco_downstream import croco_args_from_ckpt, CroCoDownstreamBinocular
@@ -236,6 +252,7 @@ def run(settings, args):
         ckpt = torch.load(args.croco_ckpt,'cpu')
         croco_args = croco_args_from_ckpt(ckpt)
         croco_args['img_size'] = ((args.img_size[0]//32)*32,(args.img_size[1]//32)*32)
+        print('TRAINING IMG SIZE: ', croco_args['img_size'])
         croco_args['args'] = args
         model = CroCoNet(**croco_args)
         msg=model.load_state_dict(ckpt['model'], strict=False)
@@ -244,7 +261,7 @@ def run(settings, args):
         print('CROCOV2 WEIGHT WELL LOADED: ', msg)
         model.train()
         model = model.to(device)
-        
+
     else:
         raise NotImplementedError(f'Model {args.model} not selected!')
 
@@ -253,28 +270,26 @@ def run(settings, args):
         if path_to_pre_trained_models.endswith('.pth') or path_to_pre_trained_models.endswith('.pth.tar') or path_to_pre_trained_models.endswith('.pt'):    # true
             # if the path already corresponds to a checkpoint path, we use it directly
             checkpoint_fname = path_to_pre_trained_models
-        else:   # false
-            # it is the path to the directory containing all checkpoints.
-            checkpoint_fname = osp.join(path_to_pre_trained_models, model_name + '_{}'.format(pre_trained_model_type) + '.pth')
-            if not os.path.exists(checkpoint_fname):
-                checkpoint_fname = checkpoint_fname + '.tar'
-        network = load_network(network, checkpoint_path=checkpoint_fname)
-        network.eval()
-        network = network.to(device)
+        model = load_network(model, checkpoint_path=checkpoint_fname)
+        model.train()
+        model = model.to(device)
     else:
-        print('No pre-trained model path provided')
+        print('----------------------------------------------------------------') 
+        print('NO PATH TO PRE-TRAINED MODELS!!!')
+        print('----------------------------------------------------------------') 
 
     print('----------------------------------------------------------------') 
+
     # 3-2. Set Trainable Parameters
     if args.freeze == 'croco_enc':
-        if dist.get_rank() == 0: print('Freezing encoder parameters!')
+        print('Freezing encoder parameters!')
         # Freeze parameters
         for name, param in model.named_parameters():
             if 'enc_blocks' in name or 'enc_norm' in name:
                 param.requires_grad = False
 
     elif args.freeze == 'croco_all':
-        if dist.get_rank() == 0: print('Freezing all croco parameters!')
+        print('Freezing all croco parameters!')
         for name, param in model.named_parameters():
             # for croco_catseg
             if 'cats_swin_decoder' in name: 
@@ -286,19 +301,20 @@ def run(settings, args):
             else:
                 param.requires_grad = False
     else:
-        if dist.get_rank() == 0: print('Full Fine Tuning!')
-
-
+        print('Full Fine Tuning!')
+    
+    if args.lora_dec:
+        print('Lora for only decoder!')
+    
     # 3-3. Show params and trainable params
     tot_params = sum(p.numel() for p in model.parameters()) 
     tot_model_size = sum(p.numel()*p.element_size() for p in model.parameters()) 
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     trainable_model_size = sum(p.numel()*p.element_size() for p in model.parameters() if p.requires_grad)
-    if dist.get_rank() == 0:
-        print('----------------------------------------------------------------')   
-        print(f"TOTAL PARAMS: {tot_params/1e6:.2f} M, TOTAL MODEL SIZE: {tot_model_size/1e6:.2f} MB")
-        print(f"TRAINABLE PARAMS: {trainable_params/1e6:.2f} M, TRAINABLE MODEL SIZE: {trainable_model_size/1e6:.2f} MB")
-        print('----------------------------------------------------------------')
+    print('----------------------------------------------------------------')   
+    print(f"TOTAL PARAMS: {tot_params/1e6:.2f} M, TOTAL MODEL SIZE: {tot_model_size/1e6:.2f} MB")
+    print(f"TRAINABLE PARAMS: {trainable_params/1e6:.2f} M, TRAINABLE MODEL SIZE: {trainable_model_size/1e6:.2f} MB")
+    print('----------------------------------------------------------------')
 
     # but better results are obtained with using simple bilinear interpolation instead of deconvolutions.
     print(colored('==> ', 'blue') + 'model created.')
@@ -318,22 +334,16 @@ def run(settings, args):
         weights_level_loss = [0.32, 0.32]
     elif args.model == 'crocov2':
         weights_level_loss = [0.32]
-
-    # 5, Define loss module
-    if args.uncertainty and not args.uncertainty_loss:
-        objective = NLLMixtureLaplace()
-    elif args.uncertainty_loss and False:
-        objective = EPE(reduction='dkmgt_uncertainty_normalized')
-    elif args.uncertainty_loss:
-        objective = EPE(reduction='uncertainty_normalized')
-    else:
-        objective = EPE()
     
-    if args.uncertainty and not args.uncertainty_loss:
+    if args.uncertainty:
+        print('Using uncertainty loss!')
+        objective = NLLMixtureLaplace()
         loss_module = MultiScaleMixtureDensity(level_weights=weights_level_loss, loss_function=objective, downsample_gt_flow=True)
     else:
+        print('Using EPE loss!')
+        objective = EPE()
         loss_module = MultiScaleFlow(level_weights=weights_level_loss, loss_function=objective, downsample_gt_flow=True)
-    
+
     # 6. Define actor
     GLUNetActor = CrocoBasedActor(model, objective=loss_module,batch_processing=batch_processing, nbr_images_to_plot=12, args=args)
     
@@ -342,12 +352,13 @@ def run(settings, args):
                              lr=settings.lr, 
                              weight_decay=0.05)
     
-    if dist.get_rank() == 0:
+    # add more config args to wandb
+    if args.log_tool == 'wandb':
         wandb.config.update({'tot_params': tot_params/1e6,
-                                'tot_trainable_params': trainable_params/1e6,
-                                'tot_model_size': tot_model_size/1e6,
-                                'tot_trainable_model_size': trainable_model_size/1e6,
-                                'croco_args': croco_args})
+                             'tot_trainable_params': trainable_params/1e6,
+                             'tot_model_size': tot_model_size/1e6,
+                             'tot_trainable_model_size': trainable_model_size/1e6,
+                             'croco_args': croco_args})
         
     # 8. Define Scheduler
     scheduler = lr_scheduler.MultiStepLR(optimizer,
@@ -355,9 +366,9 @@ def run(settings, args):
                                          gamma=0.5)
 
     train_val_loader = [train_loader, val_loader]
-    # 9. Define Traine
+    # 9. Define Trainer
     trainer = MatchingTrainer(GLUNetActor, train_val_loader, optimizer, settings, lr_scheduler=scheduler, args=args)
-    trainer.train(settings.n_epochs, load_latest=False, fail_safe=True)
+    trainer.train(settings.n_epochs, load_latest=True, fail_safe=True)
 
 
 

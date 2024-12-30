@@ -14,7 +14,6 @@ import admin.settings as ws_settings
 # JLP
 import wandb
 
-
 def run_training(train_module, train_name, seed, cudnn_benchmark=True, args=None):
     """Run a train scripts in train_settings.
     args:
@@ -90,6 +89,14 @@ def main():
     parser.add_argument('--correlation', action='store_true', help='Correlation')
     parser.add_argument('--reciprocity', action='store_true', help='Reciprocity')
     parser.add_argument('--uncertainty', action='store_true', help='Uncertainty')
+    parser.add_argument('--output_correlation', type=str, default='ca_map')
+    parser.add_argument('--softargmax_beta', type=float, default=2e-2)
+
+    parser.add_argument('--uncertainty_loss', type=float, default=0)
+    parser.add_argument('--dkm_gt', action='store_true', help='DKM ground truth')
+
+    parser.add_argument('--lora_dec', action='store_true', help='LoRA decoder')
+    parser.add_argument('--lora_dec_rank', type=int, default=8, help='LoRA decoder rank')
 
     # log_args
     parser.add_argument('--log_tool', type=str, default=None)
@@ -101,8 +108,8 @@ def main():
     parser.add_argument('--multi_gpu', action='store_true', help='Multi GPU')   # default is False
 
     # dped_coco_megadepth stage2 training 
-    parser.add_argument('--path_to_pre_trained_models', type=str, help='Path to the stage1 pre-trained models')
-
+    parser.add_argument('--path_to_pre_trained_models', type=str, help='Path to the stage1 pre-trained models', default=None)
+    parser.add_argument('--heuristic_attn_map_refine', action='store_true', help='Heuristic attention map refinement')
     args = parser.parse_args()
 
     # args.seed = random.randint(0, 3000000)

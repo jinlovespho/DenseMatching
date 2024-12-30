@@ -22,6 +22,7 @@ from einops import rearrange
 
 from models.croco.mod import FeatureL2Norm, unnormalise_and_convert_mapping_to_flow
 import numpy as np
+from models.croco.conv4d_coponerf import Conv4d
 
 import sys
 import pdb
@@ -38,7 +39,6 @@ class ForkedPdb(pdb.Pdb):
             pdb.Pdb.interaction(self, *args, **kwargs)
         finally:
             sys.stdin = _stdin
-
 
 
 class CroCoNet(nn.Module):
@@ -62,21 +62,40 @@ class CroCoNet(nn.Module):
                 
         super(CroCoNet, self).__init__()
 
-        # self.args = args 
+
+        self.args = args 
         self.model = args.model 
         self.reciprocity = args.reciprocity
         self.output_ca_map = args.output_ca_map
         self.softmax_camap = args.softmax_camap
         self.output_flow_interp = args.output_flow_interp
         self.img_size = img_size
-        self.count=0
 
-        if self.model == 'croco_catseg':
-            from models.croco.cats_swin_decoder import CATs_SWIN_Decoder
-            # ForkedPdb().set_trace()
-            self.cats_swin_decoder = CATs_SWIN_Decoder(feature_size=(img_size[0]//16), hyperpixel_ids = [i for i in range(0, 12)], args=args)
-        elif self.model == '':
-            pass
+        self.feature_size = img_size[0] // 16
+        self.l2norm = FeatureL2Norm()
+        self.x_normal = np.linspace(-1,1,self.feature_size)
+        self.x_normal = nn.Parameter(torch.tensor(self.x_normal, dtype=torch.float, requires_grad=False))
+        self.y_normal = np.linspace(-1,1,self.feature_size)
+        self.y_normal = nn.Parameter(torch.tensor(self.y_normal, dtype=torch.float, requires_grad=False))
+
+        if args.uncertainty:
+            self.coarse_uncertainty = nn.Sequential(
+                Conv4d(in_channels=12, out_channels=16, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
+                nn.GroupNorm(4,16),
+                nn.ReLU(),
+                Conv4d(in_channels=16, out_channels=16, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
+                nn.GroupNorm(4,16),
+                nn.ReLU(),
+                Conv4d(in_channels=16, out_channels=3, kernel_size=[3,3,3,3], stride=[1,1,2,2], padding=[1,1,1,1]),
+                nn.ReLU(),
+                )
+
+        # if self.model == 'croco_catseg':
+        #     from models.croco.cats_swin_decoder import CATs_SWIN_Decoder
+        #     # ForkedPdb().set_trace()
+        #     self.cats_swin_decoder = CATs_SWIN_Decoder(feature_size=(img_size[0]//16), hyperpixel_ids = [i for i in range(0, 12)], args=args)
+        # elif self.model == '':
+        #     pass
                 
         # patch embeddings  (with initialization done as in MAE)
         self._set_patch_embed(img_size, patch_size, enc_embed_dim)
@@ -115,7 +134,7 @@ class CroCoNet(nn.Module):
         self._set_mask_token(dec_embed_dim)
 
         # decoder 
-        self._set_decoder(enc_embed_dim, dec_embed_dim, dec_num_heads, dec_depth, mlp_ratio, norm_layer, norm_im2_in_dec, self.softmax_camap)
+        self._set_decoder(enc_embed_dim, dec_embed_dim, dec_num_heads, dec_depth, mlp_ratio, norm_layer, norm_im2_in_dec)
         
         # prediction head 
         # self._set_prediction_head(dec_embed_dim, patch_size)
@@ -132,14 +151,14 @@ class CroCoNet(nn.Module):
     def _set_mask_token(self, dec_embed_dim):
         self.mask_token = nn.Parameter(torch.zeros(1, 1, dec_embed_dim))
         
-    def _set_decoder(self, enc_embed_dim, dec_embed_dim, dec_num_heads, dec_depth, mlp_ratio, norm_layer, norm_im2_in_dec, softmax_camap):
+    def _set_decoder(self, enc_embed_dim, dec_embed_dim, dec_num_heads, dec_depth, mlp_ratio, norm_layer, norm_im2_in_dec):
         self.dec_depth = dec_depth
         self.dec_embed_dim = dec_embed_dim
         # transfer from encoder to decoder 
         self.decoder_embed = nn.Linear(enc_embed_dim, dec_embed_dim, bias=True)
         # transformer for the decoder 
         self.dec_blocks = nn.ModuleList([
-            DecoderBlock(dec_embed_dim, dec_num_heads, mlp_ratio=mlp_ratio, qkv_bias=True, norm_layer=norm_layer, norm_mem=norm_im2_in_dec, rope=self.rope, softmax_camap=softmax_camap)
+            DecoderBlock(dec_embed_dim, dec_num_heads, mlp_ratio=mlp_ratio, qkv_bias=True, norm_layer=norm_layer, norm_mem=norm_im2_in_dec, rope=self.rope, softmax_camap=self.args.softmax_camap, lora_dec=self.args.lora_dec, lora_dec_rank=self.args.lora_dec_rank)
             for i in range(dec_depth)])
         # final norm layer 
         self.dec_norm = norm_layer(dec_embed_dim)
@@ -301,7 +320,15 @@ class CroCoNet(nn.Module):
         T = int((tile.shape[0]) ** 0.5)
         return rearrange(tile, '(T1 T2) C H W -> C (T1 H) (T2 W)', T1=T, T2=T)
 
-    def estimate_flow(self, target_img, source_img):
+    def estimate_flow(self, source_img, target_img):
+        if self.model == 'crocov2':
+            flow_est = self.forward(target_img, source_img)
+            flow_est = F.interpolate(flow_est, size=(self.img_size[0], self.img_size[1]), mode='bilinear', align_corners=True)
+            flow_est[:,0,:,:] *= self.img_size[0]/self.feature_size
+            flow_est[:,1,:,:] *= self.img_size[1]/self.feature_size
+
+        return flow_est
+    
         output = self.forward(source_img, target_img)
         if self.model == 'croco_catseg':
             if isinstance(output, dict):
@@ -310,34 +337,25 @@ class CroCoNet(nn.Module):
                 flow_est = output[0]  # fine flow
             else:
                 flow_est = output
+        elif self.model == 'crocov2':
+            pass
         else:
             flow_est = output
         return flow_est
 
-    def zoom_in_batch(self, src_img, trg_img, zoom_ratio=(2,3), optimize=False, homo_only=False, batch_size=24):
+    def zoom_in_batch(self, src_img, trg_img, zoom_ratio=(2,3), batch_size=1):
         flow_list = []
         uncertainty_list = []
         '''
             src_img: b 3 h w 일 때 -> tmp=src_img.split(1) -> b개의 3 h w 이미지가 나옴 -> 즉 len(tmp)=b
         '''
         for src, trg in zip(src_img.split(1), trg_img.split(1)):   
-            if homo_only:
-                flow, _ = self.estimate_flow_and_confidence_map_(
-                    src, trg, inference_parameters={
-                        'mask_type': 'cyclic_consistency_error_below_10',
-                        'multi_stage_type': 'homography_only',
-                        'min_nbr_points': 10000,
-                    })
-            elif optimize:
-                flow, uncertainty = self.zoom_in_with_optimize(src, trg, zoom_ratio, max_num_iter=100, batch_size=batch_size)
-            else:
-                flow, uncertainty = self.zoom_fix_multiscale(src, trg, zoom_ratio, batch_size=batch_size)
+            flow, uncertainty = self.zoom_fix_multiscale(src, trg, zoom_ratio, batch_size=batch_size)
             flow_list.append(flow)
             uncertainty_list.append(uncertainty)
         return torch.cat(flow_list, dim=0), torch.cat(uncertainty_list, dim=0)
     
-
-    def zoom_fix_multiscale(self, src_img, trg_img, zoom_ratio_list=(3, 4, 5), batch_size=24):
+    def zoom_fix_multiscale(self, src_img, trg_img, zoom_ratio_list=(3, 4, 5), batch_size=1):
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         src_img = src_img.to(device)
         trg_img = trg_img.to(device)
@@ -441,17 +459,34 @@ class CroCoNet(nn.Module):
         y_normal = y_normal.view(b,h,1,1)
         grid_y = (grid_y*y_normal).sum(dim=1, keepdim=True) # b x 1 x h x w
         return grid_x, grid_y
-
-    def forward(self, img_target, img_source, output_mode='enc_feat'):
+    
+    @staticmethod
+    def constrain_large_log_var_map(var_min, var_max, large_log_var_map):
         """
-        img1: tensor of size B x 3 x img_size x img_size
-        img2: tensor of size B x 3 x img_size x img_size
-        
-        out will be    B x N x (3*patch_size*patch_size)
-        masks are also returned as B x N just in case 
-        """
+        Constrains variance parameter between var_min and var_max, returns log of the variance. Here large_log_var_map
+        is the unconstrained variance, outputted by the network
+        Args:
+            var_min: min variance, corresponds to parameter beta_minus in paper
+            var_max: max variance, corresponds to parameter beta_plus in paper
+            large_log_var_map: value to constrain
 
-        B,_,H,W = img_target.size()
+        Returns:
+            larger_log_var_map: log of variance parameter
+        """
+        if var_min > 0 and var_max > 0:
+            large_log_var_map = torch.log(var_min +
+                                          (var_max - var_min) * torch.sigmoid(large_log_var_map - torch.log(var_max)))
+        elif var_max > 0:
+            large_log_var_map = torch.log((var_max - var_min) * torch.sigmoid(large_log_var_map - torch.log(var_max)))
+        elif var_min > 0:
+            # large_log_var_map = torch.log(var_min + torch.exp(large_log_var_map))
+            max_exp = large_log_var_map.detach().max() - 10.0
+            large_log_var_map = torch.log(var_min / max_exp.exp() + torch.exp(large_log_var_map - max_exp)) + max_exp
+        return large_log_var_map
+
+    def forward(self, img_target, img_source, output_correlation='ca_map'):
+
+        B,_,H_224,W_224 = img_target.size()
         feat_targets, pos_target, mask_target = self._encode_image(img_target, do_mask=False, return_all_blocks=True)
         feat_sources, pos_source, mask_source = self._encode_image(img_source, do_mask=False, return_all_blocks=True)
 
@@ -463,23 +498,81 @@ class CroCoNet(nn.Module):
         if self.reciprocity:
             decfeat_source, attn_map_source = self._decoder(feat_source, pos_source, mask_source, feat_target, pos_target, return_all_blocks=True)
 
-        '''
-            attn_map[0~11], 1 12 196 196
-            attn_map_source[0~11], 1 12 196 196
-            
-        '''
-        if output_mode == 'enc_feat':
-            return (feat_targets, feat_sources)
+        if output_correlation == 'enc_feat':
+            feats1, feats2 = feat_targets, feat_sources
+            # use the last encoder feature
+            feat1, feat2 = feats1[-1], feats2[-1]  # b n d 
+            l2norm = FeatureL2Norm()   
+            # from (b, n, d) normalize along the d dimension.
+            feat1 = l2norm(feat1.permute(0,2,1)).permute(0,2,1)    
+            feat2 = l2norm(feat2.permute(0,2,1)).permute(0,2,1)
+            corr = torch.einsum('bnd, bmd -> bnm', feat1, feat2)    # b 196 196
 
-        elif output_mode == 'dec_feat':
-            return (decfeat, decfeat_source)
-        
-        elif output_mode == 'ca_map':
-            return (attn_map, attn_map_source)
+        elif output_correlation == 'dec_feat':
+            dec_feats1, dec_feats2 = decfeat, decfeat_source
+            # use the first decoder feature
+            dec_feat1, dec_feat2 = dec_feats1[0], dec_feats2[0]
+            l2norm = FeatureL2Norm()
+            # from (b, n, d) normalize along the d dimension.
+            dec_feat1 = l2norm(dec_feat1.permute(0,2,1)).permute(0,2,1)    # b n d
+            dec_feat2 = l2norm(dec_feat2.permute(0,2,1)).permute(0,2,1)
+            corr = torch.einsum('bnd, bmd -> bnm', dec_feat1, dec_feat2)    # b 196 196
+
+        elif output_correlation == 'ca_map':
+
+            camap1, camap2 = attn_map, attn_map_source
+            camap1 = [attn.mean(dim=1) for attn in camap1]   # b 196 196
+            camap2 = [attn.mean(dim=1) for attn in camap2]   # avg heads
+
+            if self.args.heuristic_attn_map_refine:
+                for i in range(len(camap1)):
+                    camap1[i][:,:,0]=camap1[i].min()
+                    camap2[i][:,:,0]=camap2[i].min()
+
+            camap1 = torch.stack(camap1, dim=1) # b 12 196 196
+            camap2 = torch.stack(camap2, dim=1)
+            refined_layered_corr = (camap1 + camap2.transpose(-1,-2))/2. # b 12 196 196
+            refined_corr = (camap1.mean(dim=1) + camap2.mean(dim=1).transpose(-1,-2))/2.    # b 196 196
 
         else:
-            pass 
+            assert False, 'output_mode not defined'
 
+        # ForkedPdb().set_trace()
+        beta=self.args.softargmax_beta  # 1e-4
+        grid_x, grid_y = self.soft_argmax(refined_corr.transpose(-1,-2).view(B, -1, self.feature_size, self.feature_size), beta=beta)
+        coarse_flow = torch.cat((grid_x, grid_y), dim=1)    # b 2 14 14 
+        flow_est = unnormalise_and_convert_mapping_to_flow(coarse_flow)  # b 2 14 14
+
+        H_32, W_32 = 224, 224
+        feature_size = H_32 // 16   # 14
+        flow_est = F.interpolate(flow_est, size=(H_32, W_32), mode='bilinear', align_corners=False)  # 224
+        flow_est[:,0,:,:] *= W_32/feature_size # 224/14
+        flow_est[:,1,:,:] *= H_32/feature_size 
+
+        # 224/14
+        # flow_est (14) -> (224/14) -> flow_est(224)
+    
+        if self.args.uncertainty:
+            output_shape = self.img_size 
+            PH, PW = output_shape[0]//16, output_shape[1]//16
+            C = refined_layered_corr.size(1)
+            refined_layered_corr = refined_layered_corr.permute(0,1,3,2).view(B,C,PH, PW, PH, PW)
+            coarse_uncertainty = self.coarse_uncertainty(refined_layered_corr)
+            bsz, ch, ha, wa, hb, wb = coarse_uncertainty.size()
+            coarse_uncertainty = coarse_uncertainty.view(bsz, ch, ha, wa, -1).mean(dim=-1)            
+            coarse_uncertainty = F.interpolate(coarse_uncertainty, size=output_shape, mode='bilinear', align_corners=False)
+
+            large_log_var_map_coarse = self.constrain_large_log_var_map(torch.tensor(2.0), torch.tensor(0.0), coarse_uncertainty[:,0].unsqueeze(1))
+            small_log_var_map_coarse = torch.ones_like(large_log_var_map_coarse, requires_grad=False) * torch.log(torch.tensor(1.0))
+            log_var_map_coarse = torch.cat((small_log_var_map_coarse, large_log_var_map_coarse), 1)
+            weight_map_coarse = coarse_uncertainty[:,1:]
+        
+        if self.args.uncertainty:
+            return {'flow_estimates': [flow_est],
+                    'uncertainty_estimates': [[log_var_map_coarse, weight_map_coarse]]}
+        else:
+            return flow_est # b 2 14 14 
+        
         # break
         if self.model == 'crocov2':
             if self.reciprocity:

@@ -6,6 +6,21 @@ from packaging import version
 from utils_flow.flow_and_mapping_operations import unormalise_and_convert_mapping_to_flow
 from models.base_matching_net import pre_process_image_glunet
 
+import sys
+import pdb
+
+class ForkedPdb(pdb.Pdb):
+    """
+    PDB Subclass for debugging multi-processed code
+    Suggested in: https://stackoverflow.com/questions/4716533/how-to-attach-debugger-to-a-python-subproccess
+    """
+    def interaction(self, *args, **kwargs):
+        _stdin = sys.stdin
+        try:
+            sys.stdin = open('/dev/stdin')
+            pdb.Pdb.interaction(self, *args, **kwargs)
+        finally:
+            sys.stdin = _stdin
 
 def no_processing(data):
     return data
@@ -85,6 +100,7 @@ class GLUNetBatchPreprocessing:
             flow_gt_original = mini_batch['flow_map'][0].to(self.device)
             flow_gt_256 = mini_batch['flow_map'][1].to(self.device)
             if flow_gt_original.shape[1] != 2:
+                # ForkedPdb().set_trace()
                 # shape is bxhxwx2
                 flow_gt_original = flow_gt_original.permute(0, 3, 1, 2)
             if flow_gt_256.shape[1] != 2:

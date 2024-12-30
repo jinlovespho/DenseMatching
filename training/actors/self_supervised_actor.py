@@ -17,32 +17,53 @@ from torchvision.utils import save_image
 import wandb
 import os 
 import torch.distributed as dist
+import numpy as np
+from PIL import Image
+
+from models.modules.mod import unnormalise_and_convert_mapping_to_flow
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-def warp_image(image, flow):
-    """Warp image using flow field"""
-    B, C, H, W = image.size()
-    # Create mesh grid
-    xx = torch.arange(0, W).view(1, -1).repeat(H, 1)
-    yy = torch.arange(0, H).view(-1, 1).repeat(1, W)
-    xx = xx.view(1, 1, H, W).repeat(B, 1, 1, 1)
-    yy = yy.view(1, 1, H, W).repeat(B, 1, 1, 1)
-    grid = torch.cat((xx, yy), 1).float().to(device)
-        
-    # Add flow to grid
-    vgrid = grid + flow
-        
-    # Scale grid to [-1,1]
-    vgrid[:, 0, :, :] = 2.0 * vgrid[:, 0, :, :] / max(W-1, 1) - 1.0
-    vgrid[:, 1, :, :] = 2.0 * vgrid[:, 1, :, :] / max(H-1, 1) - 1.0
-        
-    # Reshape for grid_sample
-    vgrid = vgrid.permute(0, 2, 3, 1)
-        
-    # Warp
-    output = torch.nn.functional.grid_sample(image, vgrid, align_corners=True)
-    return output
+import sys
+import pdb
+
+class ForkedPdb(pdb.Pdb):
+    """
+    PDB Subclass for debugging multi-processed code
+    Suggested in: https://stackoverflow.com/questions/4716533/how-to-attach-debugger-to-a-python-subproccess
+    """
+    def interaction(self, *args, **kwargs):
+        _stdin = sys.stdin
+        try:
+            sys.stdin = open('/dev/stdin')
+            pdb.Pdb.interaction(self, *args, **kwargs)
+        finally:
+            sys.stdin = _stdin
+
+def softmax_with_temperature(x, beta, d = 1):
+    r'''SFNet: Learning Object-aware Semantic Flow (Lee et al.)'''
+    M, _ = x.max(dim=d, keepdim=True)
+    x = x - M # subtract maximum value for stability
+    exp_x = torch.exp(x/beta)
+    exp_x_sum = exp_x.sum(dim=d, keepdim=True)
+    return exp_x / exp_x_sum
+
+def soft_argmax(corr, beta=0.02, x_normal=None, y_normal=None):
+    r'''SFNet: Learning Object-aware Semantic Flow (Lee et al.)'''
+    b,_,h,w = corr.size()
+    corr = softmax_with_temperature(corr, beta=beta, d=1)
+    corr = corr.view(-1,h,w,h,w) # (target hxw) x (source hxw)
+
+    grid_x = corr.sum(dim=1, keepdim=False) # marginalize to x-coord.
+    x_normal = x_normal.expand(b,w)
+    x_normal = x_normal.view(b,w,1,1)
+    grid_x = (grid_x*x_normal).sum(dim=1, keepdim=True) # b x 1 x h x w
+    
+    grid_y = corr.sum(dim=2, keepdim=False) # marginalize to y-coord.
+    y_normal = y_normal.expand(b,h)
+    y_normal = y_normal.view(b,h,1,1)
+    grid_y = (grid_y*y_normal).sum(dim=1, keepdim=True) # b x 1 x h x w
+    return grid_x, grid_y
 
 def resize_image(image, factor=32):
     H_32 = image.shape[-2] // factor * factor
@@ -307,18 +328,18 @@ class CrocoBasedActor(BaseActor):
         epoch = mini_batch['epoch']
         iter = mini_batch['iter']
         mini_batch = self.batch_processing(mini_batch)  # also put to GPU there
+        b, _, H, W = mini_batch['source_image'].shape
 
         # ======================== Vis images ===============================
         vis_img=False
         if vis_img:
-            path='./vis/tmp' 
-            save_image(mini_batch['source_image'].float(), f'{path}/img_src1.jpg', normalize=True)
-            save_image(mini_batch['target_image'].float(), f'{path}/img_tgt1.jpg', normalize=True)
-            save_image(mini_batch['correspondence_mask'].unsqueeze(1).float(), f'{path}/img_corr_msk1.jpg', normalize=True)
+            path='.' 
+            save_image(mini_batch['source_image'].float(), f'{path}/img_src.jpg', normalize=True)
+            save_image(mini_batch['target_image'].float(), f'{path}/img_tgt.jpg', normalize=True)
+            save_image(mini_batch['correspondence_mask'].unsqueeze(1).float(), f'{path}/img_corr_msk.jpg', normalize=True)
             img_warped = warp(mini_batch['source_image'].float(), mini_batch['flow_map'])
-            save_image(img_warped, f'{path}/img_warped_to_tgt1.jpg', normalize=True)
+            save_image(img_warped, f'{path}/img_warped_src.jpg', normalize=True)
             print(f'Curr Img Shape: ', mini_batch['source_image'].shape)
-            breakpoint()
         # ======================== Vis images ===============================
         
         if self.args.model == 'crocoflow':
@@ -334,7 +355,50 @@ class CrocoBasedActor(BaseActor):
             output_net_original = output_flow
             mask = mini_batch['mask']  
             loss_o, stats_o = self.objective(output_net_original, mini_batch['flow_map'], mask=mask)
+        
+        elif self.args.model == 'crocov2':
 
+            output_correlation = self.args.output_correlation    # correlation: enc_feat, dec_feat, camap
+            flow_est = self.net(mini_batch['target_image'], mini_batch['source_image'], output_correlation=output_correlation) # b 2 224 224
+
+            # outputs = self.net(mini_batch['target_image'], mini_batch['source_image'])
+            # camap1, camap2 = outputs[0], outputs[1]   # b 12 196 196
+
+            # camap1 = [attn.mean(dim=1) for attn in camap1]   # b 196 196
+            # camap2 = [attn.mean(dim=1) for attn in camap2]   # avg heads
+
+            # camap1 = torch.stack(camap1, dim=1)
+            # camap2 = torch.stack(camap2, dim=1)
+            # corr = (camap1.mean(dim=1) + camap2.mean(dim=1).transpose(-1,-2))/2.
+
+            # H_32, W_32 = 224, 224
+            # feature_size = H_32 // 16
+            # x_normal = np.linspace(-1,1,feature_size)
+            # x_normal = nn.Parameter(torch.tensor(x_normal, dtype=torch.float, requires_grad=False)).cuda()
+            # y_normal = np.linspace(-1,1,feature_size)
+            # y_normal = nn.Parameter(torch.tensor(y_normal, dtype=torch.float, requires_grad=False)).cuda()
+
+            # grid_x, grid_y = soft_argmax(corr.transpose(-1,-2).view(b, -1, feature_size, feature_size), beta=1e-4, x_normal=x_normal, y_normal=y_normal)
+            # coarse_flow = torch.cat((grid_x, grid_y), dim=1)
+            # flow_est = unnormalise_and_convert_mapping_to_flow(coarse_flow)  # b 2 14 14 = b 2 self.feature_size self.feature_size
+            # flow_est = F.interpolate(flow_est, size=(H, W), mode='bilinear', align_corners=True)
+            # flow_est[:,0,:,:] *= W/feature_size
+            # flow_est[:,1,:,:] *= H/feature_size 
+            
+            
+            # flow_est_img = flow_to_image(flow_est['flow_estimates'][0][0].squeeze().permute(1,2,0).detach().cpu().numpy())
+            # flow_gt_img = flow_to_image(mini_batch['flow_map'][0].squeeze().permute(1,2,0).detach().cpu().numpy())
+            # flow_est_img = Image.fromarray(flow_est_img)
+            # flow_gt_img = Image.fromarray(flow_gt_img)
+            # flow_est_img.save('./pred_flow_ori.png')
+            # flow_gt_img.save('./gt_flow_ori.png')
+            # import pdb;pdb.set_trace()
+            
+            output_net_original = flow_est
+            mask = mini_batch['mask']  
+            loss_o, stats_o = self.objective(output_net_original, mini_batch['flow_map'], mask=mask)
+
+        # ForkedPdb().set_trace()
         loss = loss_o
 
         # Log stats
@@ -361,33 +425,28 @@ class CrocoBasedActor(BaseActor):
                                                         mini_batch['flow_map'], mini_batch['correspondence_mask'])
                 h_, w_ = output_net_original.shape[-2:]#[-(index_reso_original+1)].shape[-2:]
 
-            if dist.get_world_size() > 1:
-                local_EPE =   torch.tensor(EPE.item()).to(mini_batch['target_image'].device)
-                local_PCK_1 = torch.tensor(PCK_1.item()).to(mini_batch['target_image'].device)
-                local_PCK_3 = torch.tensor(PCK_3.item()).to(mini_batch['target_image'].device)
-                local_PCK_5 = torch.tensor(PCK_5.item()).to(mini_batch['target_image'].device)
-                
-                
-                EPEs = [torch.tensor(0.0).to(mini_batch['target_image'].device) for _ in range(dist.get_world_size())]
-                PCK_1s = [torch.tensor(0.0).to(mini_batch['target_image'].device) for _ in range(dist.get_world_size())]
-                PCK_3s = [torch.tensor(0.0).to(mini_batch['target_image'].device) for _ in range(dist.get_world_size())]
-                PCK_5s = [torch.tensor(0.0).to(mini_batch['target_image'].device) for _ in range(dist.get_world_size())]
-                
-                dist.all_gather(EPEs  , local_EPE  )
-                dist.all_gather(PCK_1s, local_PCK_1)
-                dist.all_gather(PCK_3s, local_PCK_3)
-                dist.all_gather(PCK_5s, local_PCK_5)
-                
-                EPE = torch.mean(torch.stack(EPEs))
-                PCK_1 = torch.mean(torch.stack(PCK_1s))
-                PCK_3 = torch.mean(torch.stack(PCK_3s))
-                PCK_5 = torch.mean(torch.stack(PCK_5s))
-                
-            else:
-                EPE = EPE.item()
-                PCK_1 = PCK_1.item()
-                PCK_3 = PCK_3.item()
-                PCK_5 = PCK_5.item()
+            if self.args.multi_gpu:
+                if dist.get_world_size() > 1:
+                    local_EPE =   torch.tensor(EPE.item()).to(mini_batch['target_image'].device)
+                    local_PCK_1 = torch.tensor(PCK_1.item()).to(mini_batch['target_image'].device)
+                    local_PCK_3 = torch.tensor(PCK_3.item()).to(mini_batch['target_image'].device)
+                    local_PCK_5 = torch.tensor(PCK_5.item()).to(mini_batch['target_image'].device)
+                    
+                    
+                    EPEs = [torch.tensor(0.0).to(mini_batch['target_image'].device) for _ in range(dist.get_world_size())]
+                    PCK_1s = [torch.tensor(0.0).to(mini_batch['target_image'].device) for _ in range(dist.get_world_size())]
+                    PCK_3s = [torch.tensor(0.0).to(mini_batch['target_image'].device) for _ in range(dist.get_world_size())]
+                    PCK_5s = [torch.tensor(0.0).to(mini_batch['target_image'].device) for _ in range(dist.get_world_size())]
+                    
+                    dist.all_gather(EPEs  , local_EPE  )
+                    dist.all_gather(PCK_1s, local_PCK_1)
+                    dist.all_gather(PCK_3s, local_PCK_3)
+                    dist.all_gather(PCK_5s, local_PCK_5)
+                    
+                    EPE = torch.mean(torch.stack(EPEs))
+                    PCK_1 = torch.mean(torch.stack(PCK_1s))
+                    PCK_3 = torch.mean(torch.stack(PCK_3s))
+                    PCK_5 = torch.mean(torch.stack(PCK_5s))
 
             stats['EPE_HNet_reso_{}x{}/EPE'.format(h_, w_)] = EPE.item()
             stats['PCK_1_HNet_reso_{}x{}/EPE'.format(h_, w_)] = PCK_1.item()
@@ -417,8 +476,8 @@ class CrocoBasedActor(BaseActor):
                     output_net_original = output_net_original[0]    # fine flow
 
                 # Warp source image using ground truth and estimated flows
-                warped_source_gt = warp_image(mini_batch['source_image'], mini_batch['flow_map'])
-                warped_source_est = warp_image(mini_batch['source_image'], output_net_original)
+                warped_source_gt = warp(mini_batch['source_image'], mini_batch['flow_map'])
+                warped_source_est = warp(mini_batch['source_image'], output_net_original)
                 
                 # Create grid of images for visualization
                 img_grid = torch.cat([

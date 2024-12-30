@@ -100,6 +100,26 @@ def run(settings, args):
         print('CROCO WEIGHT WELL LOADED: ', msg)
         model.train()
         model = model.to(device)
+    
+    elif args.model == 'crocov2':
+        from models.croco.croco import CroCoNet
+        from models.croco.croco_downstream import croco_args_from_ckpt, CroCoDownstreamBinocular
+
+        # weights_already_loaded = True
+        estimate_uncertainty = args.uncertainty
+
+        # breakpoint()
+        ckpt = torch.load(args.croco_ckpt,'cpu')
+        croco_args = croco_args_from_ckpt(ckpt)
+        croco_args['img_size'] = ((args.img_size[0]//32)*32,(args.img_size[1]//32)*32)
+        croco_args['args'] = args
+        model = CroCoNet(**croco_args)
+        msg=model.load_state_dict(ckpt['model'], strict=False)
+        print('missing keys: ', msg.missing_keys) # model 에는 있는데 ckpt 에는 없는 것들
+        print('unexpected keys: ', msg.unexpected_keys) # ckpt 에는 있는데 model 에는 없는 것들
+        print('CROCOV2 WEIGHT WELL LOADED: ', msg)
+        model.train()
+        model = model.to(device)
 
     else:
         raise NotImplementedError(f'Model {args.model} not implemented')
@@ -122,7 +142,6 @@ def run(settings, args):
             # for crocoflow
             elif 'head' in name:    
                 param.requires_grad = True
-
             else:
                 param.requires_grad = False
     else:
@@ -138,7 +157,7 @@ def run(settings, args):
     print(f"TRAINABLE PARAMS: {trainable_params/1e6:.2f} M, TRAINABLE MODEL SIZE: {trainable_model_size/1e6:.2f} MB")
     print('----------------------------------------------------------------')
 
-
+    # breakpoint()
     # but better results are obtained with using simple bilinear interpolation instead of deconvolutions.
     print(colored('==> ', 'blue') + 'model created.')
 
@@ -156,6 +175,8 @@ def run(settings, args):
         weights_level_loss = [0.32]
     elif args.model == 'croco_catseg':
         weights_level_loss = [0.32, 0.32]
+    elif args.model == 'crocov2':
+        weights_level_loss = [0.32]
     loss_module = MultiScaleFlow(level_weights=weights_level_loss, loss_function=objective, downsample_gt_flow=True)
 
     # 6. Define actor

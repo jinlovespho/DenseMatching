@@ -120,10 +120,15 @@ class MatchingTrainer(BaseTrainer):
                 batch_size = data['source_image'].shape[0]
                 self._update_stats(stats, batch_size, loader)
                 self._print_stats(i, loader, batch_size)
-
-        if not loader.training and dist.get_rank()==0:
-            # update the current best value, for each epoch, can decide what is the best value.
-            self.current_best_val = self.stats[loader.name]['best_value'].avg
+        
+        if self.args.multi_gpu:
+            if not loader.training and dist.get_rank()==0:
+                # update the current best value, for each epoch, can decide what is the best value.
+                self.current_best_val = self.stats[loader.name]['best_value'].avg
+        else:
+            if not loader.training:
+                # update the current best value, for each epoch, can decide what is the best value.
+                self.current_best_val = self.stats[loader.name]['best_value'].avg
 
     def train_epoch(self):
         """Do one epoch for each loader."""

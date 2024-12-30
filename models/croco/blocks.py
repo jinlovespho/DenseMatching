@@ -20,6 +20,8 @@ import torch.nn.functional as F
 
 from itertools import repeat
 import collections.abc
+from models.loralib.layers import Linear as LoRA_Linear
+from models.loralib.layers import MergedLinear as LoRA_MergedLinear
 
 
 def _ntuple(n):
@@ -58,17 +60,25 @@ class DropPath(nn.Module):
 
 class Mlp(nn.Module):
     """ MLP as used in Vision Transformer, MLP-Mixer and related networks"""
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, bias=True, drop=0.):
+    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, bias=True, drop=0., lora=False, lora_rank=8):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
         bias = to_2tuple(bias)
         drop_probs = to_2tuple(drop)
+        self.lora = lora
 
-        self.fc1 = nn.Linear(in_features, hidden_features, bias=bias[0])
+        if self.lora:
+            self.fc1 = LoRA_Linear(in_features, hidden_features, bias=bias[0], r=lora_rank)
+            self.fc2 = LoRA_Linear(hidden_features, out_features, bias=bias[1], r=lora_rank)
+        else:
+            self.fc1 = nn.Linear(in_features, hidden_features, bias=bias[0])
+            self.fc2 = nn.Linear(hidden_features, out_features, bias=bias[1])
+
+        # self.fc1 = nn.Linear(in_features, hidden_features, bias=bias[0])
         self.act = act_layer()
         self.drop1 = nn.Dropout(drop_probs[0])
-        self.fc2 = nn.Linear(hidden_features, out_features, bias=bias[1])
+        # self.fc2 = nn.Linear(hidden_features, out_features, bias=bias[1])
         self.drop2 = nn.Dropout(drop_probs[1])
 
     def forward(self, x):
@@ -81,14 +91,22 @@ class Mlp(nn.Module):
 
 class Attention(nn.Module):
 
-    def __init__(self, dim, rope=None, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0.):
+    def __init__(self, dim, rope=None, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0., lora=False, lora_rank=8):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.lora = lora
+
+        if self.lora:
+            self.qkv = LoRA_MergedLinear(dim, dim * 3, bias=qkv_bias, r=lora_rank, enable_lora=[True, True, True])
+            self.proj = LoRA_Linear(dim, dim, r=lora_rank)
+        else:
+            self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+            self.proj = nn.Linear(dim, dim)
+            
+        # self.proj = nn.Linear(dim, dim)
         self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
         self.rope = rope 
 
@@ -137,17 +155,26 @@ class Block(nn.Module):
 
 class CrossAttention(nn.Module):
     
-    def __init__(self, dim, rope=None, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0., softmax_camap=True):
+    def __init__(self, dim, rope=None, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0., softmax_camap=True, lora=False, lora_rank=8):
         super().__init__()
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5
+        self.lora = lora
 
-        self.projq = nn.Linear(dim, dim, bias=qkv_bias)
-        self.projk = nn.Linear(dim, dim, bias=qkv_bias)
-        self.projv = nn.Linear(dim, dim, bias=qkv_bias)
+        if self.lora:
+            self.projq = LoRA_Linear(dim, dim, bias=qkv_bias, r=lora_rank)
+            self.projk = LoRA_Linear(dim, dim, bias=qkv_bias, r=lora_rank)
+            self.projv = LoRA_Linear(dim, dim, bias=qkv_bias, r=lora_rank)
+            self.proj =  LoRA_Linear(dim, dim, r=lora_rank)
+        else:
+            self.projq = nn.Linear(dim, dim, bias=qkv_bias)
+            self.projk = nn.Linear(dim, dim, bias=qkv_bias)
+            self.projv = nn.Linear(dim, dim, bias=qkv_bias)
+            self.proj = nn.Linear(dim, dim)
+            
+        # self.proj = nn.Linear(dim, dim)
         self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
         
         self.softmax_camap= softmax_camap
@@ -159,7 +186,6 @@ class CrossAttention(nn.Module):
         B, Nq, C = query.shape
         Nk = key.shape[1]
         Nv = value.shape[1]
-        
 
         q = self.projq(query)
         k = self.projk(key)
@@ -169,13 +195,12 @@ class CrossAttention(nn.Module):
         k = k.reshape(B,Nk,self.num_heads, C// self.num_heads).permute(0, 2, 1, 3)
         v = v.reshape(B,Nv,self.num_heads, C// self.num_heads).permute(0, 2, 1, 3)
 
-
         if self.rope is not None:
             q = self.rope(q, qpos)
             k = self.rope(k, kpos)
             
         attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn_tmp = attn.clone().detach()  
+        attn_tmp = attn.clone()
         
         attn = attn.softmax(dim=-1)
         if self.softmax_camap:
@@ -190,23 +215,38 @@ class CrossAttention(nn.Module):
         x = (attn @ v).transpose(1, 2).reshape(B, Nq, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-        return x,attn_tmp
+        return x, attn_tmp
 
 class DecoderBlock(nn.Module):
 
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, norm_mem=True, rope=None, softmax_camap=True):
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, norm_mem=True, rope=None, softmax_camap=True, lora_dec=False, lora_dec_rank=8):
         super().__init__()
+
         self.norm1 = norm_layer(dim)
-        self.attn = Attention(dim, rope=rope, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
-        self.cross_attn = CrossAttention(dim, rope=rope, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop, softmax_camap=softmax_camap)
+        self.attn = Attention(dim, rope=rope, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop, lora=lora_dec, lora_rank=lora_dec_rank)
+        self.cross_attn = CrossAttention(dim, rope=rope, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop, softmax_camap=softmax_camap, lora=lora_dec, lora_rank=lora_dec_rank)
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         self.norm3 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop, lora=lora_dec, lora_rank=lora_dec_rank)
         self.norm_y = norm_layer(dim) if norm_mem else nn.Identity()
 
+        # # find the total number of parameters in self.attn
+        # total_params = sum(p.numel() for p in self.attn.parameters())
+        # print(f'Total parameters in self.attn: {total_params:,}')
+
+        # # find the total number of parameters in self.cross_attn
+        # total_params = sum(p.numel() for p in self.cross_attn.parameters())
+        # print(f'Total parameters in self.cross_attn: {total_params:,}')
+
+        # # find the total number of parameters in self.mlp
+        # total_params = sum(p.numel() for p in self.mlp.parameters())
+        # print(f'Total parameters in self.mlp: {total_params:,}')
+
+        # breakpoint()
+        
     def forward(self, x, y, xpos, ypos):
         x = x + self.drop_path(self.attn(self.norm1(x), xpos))
         y_ = self.norm_y(y)

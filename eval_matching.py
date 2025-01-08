@@ -31,6 +31,7 @@ def main(args, settings):
         print('DENSE_ZOOM_IN_RATIO: ', args.dense_zoom_ratio)
     print('CROCO_CKPT: ', args.croco_ckpt)
     print('OUTPUT_CORRELATION: ', args.output_correlation)
+    print('SOFT_ARGMAX_BETA: ', args.softargmax_beta)
 
     if args.dataset == 'hp':
         if args.eval_img_size is None:

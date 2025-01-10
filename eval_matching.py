@@ -5,14 +5,23 @@ from torch.utils.data import DataLoader
 import argparse
 import datasets
 import json
+import wandb
 
 from utils_data.image_transforms import ArrayToTensor
-from validation.flow_evaluation.evaluate_per_dataset import run_evaluation_generic, run_evaluation_eth3d, run_evaluation_semantic
+from validation.flow_evaluation.evaluate_per_dataset import run_evaluation_generic, run_evaluation_eth3d, run_evaluation_semantic, run_evaluation_semantic_dift
 from model_selection import select_model
 import admin.settings as ws_settings
 from admin.stats import merge_dictionaries
 
 def main(args, settings):
+    
+    # set up log tool
+    if args.log_tool == 'wandb':
+        wandb.init( project = args.wandb_proj_name,
+                    name = args.wandb_exp_name,
+                    config = args,
+                    dir=args.wandb_path)
+        
     # image transformations for the dataset
     co_transform = None
     target_transform = transforms.Compose([ArrayToTensor()])  # only put channel first
@@ -105,15 +114,18 @@ def main(args, settings):
                                             path_to_save=path_to_save, plot=args.plot, plot_100=args.plot_100,
                                             plot_ind_images=args.plot_individual_images, args=args)
     elif args.dataset == 'spair':
-        test_set = datasets.SPairDataset(settings.env.spair, source_image_transform=input_transform,
-                                            target_image_transform=input_transform, split='test',
-                                            flow_transform=target_transform)
-        test_dataloader = DataLoader(test_set, batch_size=1, num_workers=8)
-        output = run_evaluation_semantic(network, test_dataloader, device,
-                                            estimate_uncertainty=estimate_uncertainty,
-                                            flipping_condition=args.flipping_condition,
-                                            path_to_save=path_to_save, plot=args.plot, plot_100=args.plot_100,
-                                            plot_ind_images=args.plot_individual_images, args=args)
+        if args.model == 'dift_sd':
+            output = run_evaluation_semantic_dift(pipe=network, dataset_path=settings.env.spair, args=args)
+        else:
+            test_set = datasets.SPairDataset(settings.env.spair, source_image_transform=input_transform,
+                                                target_image_transform=input_transform, split='test',
+                                                flow_transform=target_transform)
+            test_dataloader = DataLoader(test_set, batch_size=1, num_workers=0)
+            output = run_evaluation_semantic(network, test_dataloader, device,
+                                                estimate_uncertainty=estimate_uncertainty,
+                                                flipping_condition=args.flipping_condition,
+                                                path_to_save=path_to_save, plot=args.plot, plot_100=args.plot_100,
+                                                plot_ind_images=args.plot_individual_images, args=args)
     
     else:
         raise ValueError('Unknown dataset, {}'.format(args.dataset))
@@ -170,6 +182,26 @@ if __name__ == "__main__":
     parser.add_argument('--plot', action='store_true', help='plot? default is False')
     parser.add_argument('--plot_100', action='store_true', help='plot 100 first images? default is False')
     parser.add_argument('--plot_individual_images', action='store_true', help='plot individual images? default is False')
+    
+    # log_args
+    parser.add_argument('--log_tool', type=str, default=None)
+    parser.add_argument('--wandb_path', type=str, default=None)
+    parser.add_argument('--wandb_proj_name', type=str, default=None)
+    parser.add_argument('--wandb_exp_name', type=str, default='no_tag_assigned')
+    
+    # dift args 
+    parser.add_argument('--feat_save_path', type=str, default='/scratch/lt453/spair_ft/', help='path to save features')
+    parser.add_argument('--img_size', nargs='+', type=int, default=[768, 768],
+                        help='''in the order of [width, height], resize input image
+                            to [w, h] before fed into diffusion model, if set to 0, will
+                            stick to the original input size. by default is 768x768.''')
+    parser.add_argument('--t', default=261, type=int, help='t for diffusion')
+    parser.add_argument('--up_ft_index', default=1, type=int, help='which upsampling block to extract the ft map')
+    parser.add_argument('--ensemble_size', default=8, type=int, help='ensemble size for getting an image ft map')
+    parser.add_argument('--is_feat_extracted', type=bool, default=False)
+    parser.add_argument('--vis_pred_kpts', action='store_true')
+    
+    
 
     args = parser.parse_args()
 

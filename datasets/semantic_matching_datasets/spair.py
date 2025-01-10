@@ -43,6 +43,7 @@ class SPairDataset(SemanticKeypointsDataset):
         self.train_data = self.train_data[:len(self.train_data) - 1]
         self.src_imnames = list(map(lambda x: x.split('-')[1] + '.jpg', self.train_data))
         self.trg_imnames = list(map(lambda x: x.split('-')[2].split(':')[0] + '.jpg', self.train_data))
+        self.cat_imnames = list(map(lambda x: x.split('-')[2].split(':')[1], self.train_data))
         self.cls = os.listdir(self.img_path)
         self.cls.sort()
 

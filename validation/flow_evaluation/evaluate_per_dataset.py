@@ -1,10 +1,14 @@
 import numpy as np
 import torch
 import os
+import json 
+import sys 
+import cv2 
 from PIL import Image
 from tqdm import tqdm
 import pandas as pd
 from torch.utils.data import DataLoader
+import wandb
 
 from validation.flow_evaluation.metrics_uncertainty import (compute_average_of_uncertainty_metrics, compute_aucs,
                                                             compute_uncertainty_per_image)
@@ -231,49 +235,17 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
             flow_gt[:,0,:,:] *= eval_w/flow_gt_w
             flow_gt[:,1,:,:] *= eval_h/flow_gt_h   
 
-        # crocoflow, croco_catseg, 
-        if args.model == 'croco':
-            source_img = source_img / 255.0
-            target_img = target_img / 255.0
-
-            # for crocoflow as it predicts uncertainty
-            if estimate_uncertainty:
-                output = network(target_img, source_img)
-                flow_est = output[:,:-1,:,:]
-                conf = output[:,-1,:,:]
-            
-            # for other croco models that doesnt predict uncertainty
-            else:
-                if args.model =='croco_catseg':
-                    if args.dense_zoom_in:
-                        flow_est, uncertainty_est = network.zoom_in_batch(source_img, target_img, zoom_ratio=args.dense_zoom_ratio, optimize=False, homo_only=False, batch_size=b)
-                    else:
-                        output = network(target_img, source_img)   
-                        if isinstance(output, dict):
-                            flow_est = output['flow_estimates'][0]
-                        elif isinstance(output, list):
-                            flow_est = output[0]
-
-                elif args.model == 'future croco models':
-                    pass
-            
-        
-        elif args.model == 'crocov2' or args.model == 'crocov1':
-
+        if args.model == 'crocov2':
             H_224, W_224 = args.model_img_size
-
             source_img = source_img / 255.0
             target_img = target_img / 255.0
-
             in1k_mean = torch.tensor([0.485, 0.456, 0.406]).view(3,1,1)
             in1k_std =  torch.tensor([0.229, 0.224, 0.225]).view(3,1,1)
-
             source_img = (source_img - in1k_mean) / in1k_std
             target_img = (target_img - in1k_mean) / in1k_std
-
             source_img = source_img.to(device)
             target_img = target_img.to(device)
-          
+
             if args.dense_zoom_in:
                 flow_est, uncertainty_est = network.zoom_in_batch(source_img, target_img, zoom_ratio=args.dense_zoom_ratio, batch_size=b)
             else:
@@ -319,175 +291,9 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
                     
                     save_image(grid, f'{save_path}/{i_batch}_combined.jpg')
 
-        # evaluation protocol
-        # eval_img_size -> resize input img to 224 -> model's output_flow 224 -> 
-        elif args.model == 'dust3r' or args.model == 'mast3r':
-
-            H_32, W_32 = args.model_img_size
-            in1k_mean = torch.tensor([0.485, 0.456, 0.406]).view(3,1,1).to(device)
-            in1k_std =  torch.tensor([0.229, 0.224, 0.225]).view(3,1,1).to(device)
-            source_img = source_img.float()/255.
-            target_img = target_img.float()/255.
-            source_img_orig = source_img.clone()
-            target_img_orig = target_img.clone()
-            source_img = (source_img - in1k_mean) / in1k_std
-            target_img = (target_img - in1k_mean) / in1k_std
-            source_img = F.interpolate(source_img, size=(H_32, W_32), mode='bilinear', align_corners=False)
-            target_img = F.interpolate(target_img, size=(H_32, W_32), mode='bilinear', align_corners=False)
-            
-            output_mode = args.output_mode    # enc_feat, dec_feat, camap
-            outputs = network(target_img, source_img, output_mode=output_mode)
-
-            if output_mode == 'enc_feat':
-                feats1, feats2 = outputs[0], outputs[1]
-                feat1 = feats1[-1]  # b n d 
-                feat2 = feats2[-1]
-                feat1 = feat1.unsqueeze(0)
-                feat2 = feat2.unsqueeze(0)
-
-                l2norm = FeatureL2Norm()    # normalizes along the feature 
-                ## from (b, n, d) normalize along the n dimension.
-                # feat1 = l2norm(feat1)
-                # feat2 = l2norm(feat2)
-                # from (b, n, d) normalize along the d dimension.
-                feat1 = l2norm(feat1.permute(0,2,1)).permute(0,2,1)    
-                feat2 = l2norm(feat2.permute(0,2,1)).permute(0,2,1)
-                corr = torch.einsum('bnd, bmd -> bnm', feat1, feat2)
-
-            elif output_mode == 'dec_feat':
-                dec_feats1 = [outputs[i][0] for i in range(len(outputs))]
-                dec_feats2 = [outputs[i][1] for i in range(len(outputs))]
-                dec_feats1.pop(0)
-                dec_feats2.pop(0)
-
-                # use the first decoder feature
-                dec_feat1 = dec_feats1[0]
-                dec_feat2 = dec_feats2[0]
-                ## use last decoder feature
-                # dec_feat1 = dec_feats1[-1]
-                # dec_feat2 = dec_feats2[-1]
-                ## use the average of all decoder features
-                # dec_feat1 = torch.stack(dec_feats1, dim=1).mean(dim=1)
-                # dec_feat2 = torch.stack(dec_feats2, dim=1).mean(dim=1)
-
-                l2norm = FeatureL2Norm()
-                ## from (b, n, d) normalize along the n dimension.
-                dec_feat1 = l2norm(dec_feat1)
-                dec_feat2 = l2norm(dec_feat2)
-
-                # from (b, n, d) normalize along the d dimension.
-                # dec_feat1 = l2norm(dec_feat1.permute(0,2,1)).permute(0,2,1)    # b n d
-                # dec_feat2 = l2norm(dec_feat2.permute(0,2,1)).permute(0,2,1)
-                corr = torch.einsum('bnd, bmd -> bnm', dec_feat1, dec_feat2)    # b 196 196
-
-            elif output_mode == 'ca_map':
-                camap1, camap2 = outputs[0], outputs[1]   # b 12 196 196
-                camap1 = [attn.mean(dim=1).detach() for attn in camap1]   # b 196 196
-                camap2 = [attn.mean(dim=1).detach() for attn in camap2]   # avg heads
-
-                ## heuristic attention visualize
-                # for j in range(len(camap1)):
-                #     print(camap1[j].argmax(dim=-1))
-                # print('-'*50)
-                # for j in range(len(camap2)):
-                #     print(camap2[j].argmax(dim=-1))
-                # breakpoint()
-
-                for i in range(len(camap1)):
-                    camap1[i][:,:,0]=camap1[i].min()
-                for i in range(len(camap2)):
-                    camap2[i][:,:,0]=camap2[i].min()
-
-                # for j in range(len(camap1)):
-                #     print(camap1[j].argmax(dim=-1))
-                # print('-'*50)
-                # for j in range(len(camap2)):
-                #     print(camap2[j].argmax(dim=-1))
-                # breakpoint()
-
-                camap1 = torch.stack(camap1, dim=1)
-                camap2 = torch.stack(camap2, dim=1)
-                corr = (camap1.mean(dim=1) + camap2.mean(dim=1).transpose(-1,-2))/2.
-
-                # # heuristic attention refine
-                # for i in range(len(camap1)):
-                #     camap1[i][:,:,0]=0
-                # for i in range(len(camap2)):
-                #     camap2[i][:,:,0]=0
-
-                # corr = [ (camap1[i] + camap2[i].transpose(-1,-2))/2 for i in range(len(camap1))]    # b 196 196
-                # # avg across layers
-                # corr = torch.stack(corr, dim=1).mean(dim=1)    # b 196 196
-
-            else:
-                pass
-
-            feature_size = H_32 // 16
-            x_normal = np.linspace(-1,1,feature_size)
-            x_normal = nn.Parameter(torch.tensor(x_normal, dtype=torch.float, requires_grad=False)).cuda()
-            y_normal = np.linspace(-1,1,feature_size)
-            y_normal = nn.Parameter(torch.tensor(y_normal, dtype=torch.float, requires_grad=False)).cuda()
-
-            grid_x, grid_y = soft_argmax(corr.transpose(-1,-2).view(b, -1, feature_size, feature_size), beta=1e-4, x_normal=x_normal, y_normal=y_normal)
-            coarse_flow = torch.cat((grid_x, grid_y), dim=1)
-            flow_est = unnormalise_and_convert_mapping_to_flow(coarse_flow)  # b 2 14 14 = b 2 self.feature_size self.feature_size
-            flow_est = F.interpolate(flow_est, size=(H, W), mode='bilinear', align_corners=True)
-            flow_est[:,0,:,:] *= W/feature_size
-            flow_est[:,1,:,:] *= H/feature_size   
-            
-            save_path = f'./vis/suppl/hp/{args.model}/{curr_id}'
-            if not os.path.exists(save_path):
-                os.makedirs(save_path)
-
-            vis_size = (224, 224)
-            source_img_orig = F.interpolate(source_img_orig, size=vis_size, mode='bilinear', align_corners=True)
-            target_img_orig = F.interpolate(target_img_orig, size=vis_size, mode='bilinear', align_corners=True)
+        elif args.model == 'add more models':
+            pass 
         
-            mask_valid_orig = F.interpolate(mask_valid_orig.float().unsqueeze(0), size=vis_size, mode='bilinear', align_corners=True)
-            save_image(source_img_orig, f'{save_path}/{i_batch}_img_src.jpg', normalize=True)
-            save_image(target_img_orig, f'{save_path}/{i_batch}_img_tgt.jpg', normalize=True)
-            # save_image(mask_valid.float(), f'{save_path}/{curr_id}/{i_batch}_img_mask.jpg', normalize=True)
-
-            warped_source_gt = warp(source_img, flow_gt)  
-            warped_source_est = warp(source_img, flow_est)
-            warped_source_gt = F.interpolate(warped_source_gt, size=vis_size, mode='bilinear', align_corners=True)
-            warped_source_est = F.interpolate(warped_source_est, size=vis_size, mode='bilinear', align_corners=True)
-            save_image(warped_source_gt, f'{save_path}/{i_batch}_img_warped_src_gt.jpg', normalize=True)
-            save_image(warped_source_est*mask_valid_orig, f'{save_path}/{i_batch}_img_warped_src_est.jpg', normalize=True)
-
-
-        elif args.model == 'crocoflow':
-
-            H_32, W_32 = args.model_img_size
-
-            in1k_mean = torch.tensor([0.485, 0.456, 0.406]).view(3,1,1).to(device)
-            in1k_std =  torch.tensor([0.229, 0.224, 0.225]).view(3,1,1).to(device)
-            source_img = source_img.float()/255.
-            target_img = target_img.float()/255.
-
-            source_img = (source_img - in1k_mean) / in1k_std
-            target_img = (target_img - in1k_mean) / in1k_std
-
-            source_img = F.interpolate(source_img, size=(H_32, W_32), mode='bilinear', align_corners=False)
-            target_img = F.interpolate(target_img, size=(H_32, W_32), mode='bilinear', align_corners=False)
-            
-            # breakpoint()
-            output = network(target_img, source_img)
-            flow_est = output[:,:-1,:,:]
-            conf = output[:,-1,:,:]
-
-            flow_est = F.interpolate(flow_est, size=(H, W), mode='bilinear', align_corners=True)
-            flow_est[:,0,:,:] *= W/224.
-            flow_est[:,1,:,:] *= H/224.   
-
-            save_image(source_img, f'./suppl_crocoflow_img_src.jpg', normalize=True)
-            save_image(target_img, f'./suppl_crocoflow_img_tgt.jpg', normalize=True)
-            save_image(mask_valid.float(), f'./suppl_crocoflow_img_mask.jpg', normalize=True)
-            warped_source_gt = warp(source_img, flow_gt)  
-            warped_source_est = warp(source_img, flow_est)
-            save_image(warped_source_gt, f'./suppl_crocoflow_img_warped_src_gt.jpg', normalize=True)
-            save_image(warped_source_est*mask_valid.unsqueeze(1), f'./suppl_crocoflow_img_warped_src_est.jpg', normalize=True)
-
         else:
             if estimate_uncertainty:
                 flow_est, uncertainty_est = network.estimate_flow_and_confidence_map(source_img, target_img)    # flow_est: 1 2 224 224, uncertainty_est: pdcnet 
@@ -636,9 +442,12 @@ def run_evaluation_semantic(network, test_dataloader, device, estimate_uncertain
         target_img = mini_batch['target_image']
         flow_gt = mini_batch['flow_map'].to(device)
         mask_valid = mini_batch['correspondence_mask'].to(device)
+        cat = mini_batch['category'][0]
 
         b, c, H_orig, W_orig = source_img.shape
 
+        breakpoint()
+        
         source_img_orig = source_img.clone() / 255.0
         target_img_orig = target_img.clone() / 255.0
 
@@ -666,17 +475,6 @@ def run_evaluation_semantic(network, test_dataloader, device, estimate_uncertain
         else:
             raise ValueError('No pck threshold in mini_batch')
 
-        # breakpoint()
-        # if estimate_uncertainty:
-        #     if flipping_condition:
-        #         raise NotImplementedError('No flipping condition for PDC-Net yet')
-        #     flow_est, uncertainty_est = network.estimate_flow_and_confidence_map(source_img, target_img)
-        # else:
-        #     uncertainty_est = None
-        #     if flipping_condition:
-        #         flow_est = network.estimate_flow_with_flipping_condition(source_img, target_img)
-        #     else:
-        #         # flow_est = network.estimate_flow(source_img, target_img)
         estimate_uncertainty=False
         uncertainty_est=None
         output_correlation = args.output_correlation    # correlation: enc_feat, dec_feat, camap
@@ -733,10 +531,7 @@ def run_evaluation_semantic(network, test_dataloader, device, estimate_uncertain
                                       mini_batch['target_kps'][0][:, 0], mini_batch['target_kps'][0][:, 1],
                                       uncertainty_comp_est=uncertainty_est)
             else:
-                plot_flow_and_uncertainty(path_to_save, 'image_{}'.format(i_batch), source_img, target_img,
-                                          flow_gt, flow_est)
-        
-        # breakpoint()
+                plot_flow_and_uncertainty(path_to_save, 'image_{}'.format(i_batch), source_img, target_img, flow_gt, flow_est)
 
         flow_est = flow_est.permute(0, 2, 3, 1)[mask_valid]
         flow_gt = flow_gt.permute(0, 2, 3, 1)[mask_valid]
@@ -769,6 +564,7 @@ def run_evaluation_semantic(network, test_dataloader, device, estimate_uncertain
             dict_list_uncertainties = compute_uncertainty_per_image(uncertainty_est, flow_gt, flow_est, mask_valid,
                                                                     dict_list_uncertainties)
 
+    breakpoint()
     epe_all = np.concatenate(epe_all_list)
     pck_0_05_dataset = np.mean(epe_all <= 0.05 * L_pck)
     pck_0_01_dataset = np.mean(epe_all <= 0.01 * L_pck)
@@ -799,194 +595,212 @@ def run_evaluation_semantic(network, test_dataloader, device, estimate_uncertain
                 dict_list_uncertainties[uncertainty_name])
     return output
 
-# def run_evaluation_semantic(network, test_dataloader, device, estimate_uncertainty=False, flipping_condition=False,
-#                             path_to_save=None, plot=False, plot_100=False, plot_ind_images=False, sub_data=None, args=None):
-#     pbar = tqdm(enumerate(test_dataloader), total=len(test_dataloader))
-#     mean_epe_list, epe_all_list, pck_0_05_list, pck_0_01_list, pck_0_1_list, pck_0_15_list = [], [], [], [], [], []
-#     dict_list_uncertainties = {}
-#     eval_buf = {'cls_pck': dict(), 'vpvar': dict(), 'scvar': dict(), 'trncn': dict(), 'occln': dict()}
 
-#     # pck curve per image
-#     pck_thresholds = [0.01]
-#     pck_thresholds.extend(np.arange(0.05, 0.4, 0.05).tolist())
-#     pck_per_image_curve = np.zeros((len(pck_thresholds), len(test_dataloader)), np.float32)
+def run_evaluation_semantic_dift(pipe, dataset_path, args):
+    
+    # copied code from dift 
+    feat_save_path = args.feat_save_path
+    test_path = 'PairAnnotation/test'
+    json_list = os.listdir(os.path.join(dataset_path, test_path))
+    all_cats = os.listdir(os.path.join(dataset_path, 'JPEGImages'))
+    all_cats.sort()
+    cat2json = {}
 
-#     for i_batch, mini_batch in pbar:
-#         source_img = mini_batch['source_image'] # b=1 3 600 800 [0,255]
-#         target_img = mini_batch['target_image'] # b=1 3 600 800
-#         flow_gt = mini_batch['flow_map'].to(device) # b=1 2 600 800
-#         mask_valid = mini_batch['correspondence_mask'].to(device) # b=1 600 800
+    for cat in all_cats:
+        cat_list = []
+        for i in json_list:
+            if cat in i:
+                cat_list.append(i)
+        cat2json[cat] = cat_list
 
-#         source_img = source_img.float().to(device)
-#         target_img = target_img.float().to(device)
-#         _, _, orig_H, orig_W = source_img.shape
+    # get test image path for all cats
+    cat2img = {}
+    for cat in all_cats:
+        cat2img[cat] = []
+        cat_list = cat2json[cat]
+        for json_path in cat_list:
+            with open(os.path.join(dataset_path, test_path, json_path)) as temp_f:
+                data = json.load(temp_f)
+                temp_f.close()
+            src_imname = data['src_imname']
+            trg_imname = data['trg_imname']
+            if src_imname not in cat2img[cat]:
+                cat2img[cat].append(src_imname)
+            if trg_imname not in cat2img[cat]:
+                cat2img[cat].append(trg_imname)
+                
+    print('-'*100)
+    print('< cat2img info >')
+    for key, value in cat2img.items():
+        count=len(cat2img[key])
+        print(f'{key}: {count}')
+    print('-'*100)
+    print('< cat2json info >')
+    for key, value in cat2json.items():
+        print(f'{key}: {len(value)}')
+    print('-'*100)
+    
+    if args.is_feat_extracted == False:
+        print("MSG: saving all test images DIFT features...")
+        os.makedirs(feat_save_path, exist_ok=True)
+        for cat in tqdm(all_cats):
+            output_dict = {}
+            image_list = cat2img[cat]
+            for image_path in image_list:
+                img = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, image_path))
+                output_dict[image_path] = pipe.forward(img,
+                                                    category=cat,
+                                                    img_size=args.eval_img_size,
+                                                    t=args.t,
+                                                    up_ft_index=args.up_ft_index,
+                                                    ensemble_size=args.ensemble_size)
+            torch.save(output_dict, os.path.join(feat_save_path, f'{cat}.pth'))
+    else:
+        print('MSG: DIFT features already extracted')
+    print('-'*100)
+    
+    # Prepare evaluation
+    output={}
+    output[f'per_image_pck@0.1']={}
+    output[f'per_point_pck@0.1']={}
+    total_pck = []
+    all_correct = 0
+    all_total = 0
+    
+    '''
+        all_cats: ['aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'dog', 'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'train', 'tvmonitor']
+        cat2json.keys(): ['aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'dog', 'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'train', 'tvmonitor']
+        cat2json['aeroplane']: ['000250-2008_008607-2009_002388:aeroplane.json', '000540-2010_004817-2008_008607:aeroplane.json', ... ]
+        len(cat2json['aeroplane']): 690
+    '''
+    
+    for cat in all_cats:
+        cat_list = cat2json[cat]
+        output_dict = torch.load(os.path.join(feat_save_path, f'{cat}.pth'), weights_only=True)
 
-#         if args.model == 'crocov2':
-#             # in1k_mean = torch.tensor([0.485, 0.456, 0.406]).view(3,1,1).to(device)
-#             # in1k_std =  torch.tensor([0.229, 0.224, 0.225]).view(3,1,1).to(device)
+        cat_pck = []
+        cat_correct = 0
+        cat_total = 0
 
-#             img_s = source_img.clone().float() / 255.0
-#             img_t = target_img.clone().float() / 255.0
+        print(f'MSG: Evaluating for category ==> {cat}')
+        for i, json_path in enumerate(tqdm(cat_list)):
 
-#             # img_s = (img_s - in1k_mean) / in1k_std
-#             # img_t = (img_t - in1k_mean) / in1k_std
-
-#             img_s = img_s.to(device)
-#             img_t = img_t.to(device)
-
-#             if args.eval_img_size is not None:
-#                 H, W = args.eval_img_size
-#                 H_32, W_32 = (H//32)*32, (W//32)*32
-#                 img_s = F.interpolate(img_s, size=(H_32, W_32), mode='bilinear', align_corners=False)
-#                 img_t = F.interpolate(img_t, size=(H_32, W_32), mode='bilinear', align_corners=False)
+            with open(os.path.join(dataset_path, test_path, json_path)) as temp_f:
+                data = json.load(temp_f)
             
-#             # mask_valid = F.interpolate(mask_valid.float().unsqueeze(0), size=(H_32, W_32), mode='nearest').squeeze(0).bool()
-#             # flow_gt_h,flow_gt_w = flow_gt.size(2),flow_gt.size(3)
-#             # flow_gt = F.interpolate(flow_gt, size=(H_32, W_32), mode='bilinear', align_corners=False).to(device)
-#             # flow_gt[:,0,:,:] *= W_32/flow_gt_w
-#             # flow_gt[:,1,:,:] *= H_32/flow_gt_h
+            src_img_size = data['src_imsize'][:2][::-1]
+            trg_img_size = data['trg_imsize'][:2][::-1]
 
+            src_ft = output_dict[data['src_imname']]
+            trg_ft = output_dict[data['trg_imname']]
 
-#         # save_image(img_s, f'img_s.jpg', normalize=True)
-#         # save_image(img_t, f'img_t.jpg', normalize=True)
-#         # save_image(mask_valid.float(), f'img_mask.jpg', normalize=True)
-#         # warped_source_gt = warp(img_s, flow_gt.float())  
-#         # save_image(warped_source_gt, f'img_warped_src_gt.jpg', normalize=True)
-        
+            src_ft = nn.Upsample(size=src_img_size, mode='bilinear')(src_ft)
+            trg_ft = nn.Upsample(size=trg_img_size, mode='bilinear')(trg_ft)
+            h = trg_ft.shape[-2]
+            w = trg_ft.shape[-1]
 
-#         if 'pckthres' in list(mini_batch.keys()):
-#             L_pck = mini_batch['pckthres'][0].float().item()    # L_pck=800
-#         else:
-#             raise ValueError('No pck threshold in mini_batch')
+            trg_bndbox = data['trg_bndbox']
+            threshold = max(trg_bndbox[3] - trg_bndbox[1], trg_bndbox[2] - trg_bndbox[0])
 
-#         if args.dense_zoom_in:
-#             flow_est, uncertainty_est = network.zoom_in_batch(img_s, img_t, zoom_ratio=args.dense_zoom_ratio, optimize=False, homo_only=False, batch_size=1)
-#             print('dense zoom in')
-#             print('input img_shape: ', img_s.shape)
-#             print('output flow_est shape: ', flow_est.shape)
-#             print('gt_flow shape: ', flow_gt.shape)
-#         else:
-#             coarse_flow = network(img_t, img_s)    # b 2 14 14
-#             orig_size = (orig_H, orig_W)    # 600 800
-#             flow_est = F.interpolate(coarse_flow, size=orig_size, mode='bilinear', align_corners=False)
-#             flow_est[:, 0] *= float(orig_W) / float(14)
-#             flow_est[:, 1] *= float(orig_H) / float(14)
-#             print('no dense zoom in')
-#             print('input img_shape: ', img_s.shape)
-#             print('output coarse_flow shape: ', coarse_flow.shape)
-#             print('output upsampled flow_est shape: ', flow_est.shape)
-#             print('gt_flow shape: ', flow_gt.shape)
+            total = 0
+            correct = 0
+            
+            SAVE_PATH = f'{args.save_dir}/{cat}'
+            if not os.path.exists(SAVE_PATH):
+                os.makedirs(SAVE_PATH)
+                    
+            VISUALIZE=args.vis_pred_kpts
+            ## PHO_VISUALIZE BBOX and KEYPOINTS IN TARGET AND SOURCE
+            if VISUALIZE:
+                # Load source and target images
+                src_img = cv2.imread(os.path.join(dataset_path, 'JPEGImages', cat, data['src_imname']))
+                trg_img = cv2.imread(os.path.join(dataset_path, 'JPEGImages', cat, data['trg_imname']))
+                
+                # Get original dimensions
+                src_h, src_w = src_img.shape[:2]
+                trg_h, trg_w = trg_img.shape[:2]
+                
+                # Calculate scale factors
+                scale_x = src_w / trg_w
+                scale_y = src_h / trg_h
+                
+                # Resize target image and adjust target points for visualization only
+                trg_img = cv2.resize(trg_img, (src_w, src_h))
+                vis_trg_kpts = [[int(kp[0] * scale_x), int(kp[1] * scale_y)] for kp in data['trg_kps']]
+                
+                # Create combined visualization
+                combined_vis = np.hstack((src_img.copy(), trg_img.copy()))
 
-#         # =========================== log warped imgs to wandb (cursor) ==================================
-#         wandb_num_log_img=20
-#         if args.log_tool == 'wandb':
-#             # Log warped images to wandb for first few batches
-#             if i_batch < wandb_num_log_img:
-#                 # Warp source image using ground truth and estimated flows
-#                 source_img = source_img / 255.0     # 1 3 600 800 [0,1]
-#                 target_img = target_img / 255.0
-#                 '''
-#                     flow_gt: 1 2 600 800
-#                     flow_est: 1 2 600 800
-#                 '''
-#                 warped_source_gt = warp(source_img, flow_gt)  
-#                 warped_source_est = warp(source_img, flow_est)
-#                 # Apply mask to warped estimated flow
-#                 warped_source_est_masked = warped_source_est * mask_valid.unsqueeze(1)
+            for idx in range(len(data['src_kps'])):
+                total += 1
+                cat_total += 1
+                all_total += 1
+                src_point = data['src_kps'][idx]
+                trg_point = data['trg_kps'][idx]
 
-#                 # save_image(source_img, './img_s.jpg', normalize=True)
-#                 # save_image(target_img, './img_t.jpg', normalize=True)
-#                 # save_image(warped_source_gt, './img_warped_src_gt.jpg', normalize=True)
-#                 # save_image(warped_source_est, './img_warped_src_est.jpg')
+                num_channel = src_ft.size(1)
+                src_vec = src_ft[0, :, src_point[1], src_point[0]].view(1, num_channel) # 1, C
+                trg_vec = trg_ft.view(num_channel, -1).transpose(0, 1) # HW, C
+                src_vec = F.normalize(src_vec).transpose(0, 1) # c, 1
+                trg_vec = F.normalize(trg_vec) # HW, c
+                cos_map = torch.mm(trg_vec, src_vec).view(h, w).cpu().numpy() # H, W
 
-#                 # breakpoint()
+                max_yx = np.unravel_index(cos_map.argmax(), cos_map.shape)
 
-#                 # Create grid of images for visualization
-#                 img_grid = torch.cat([
-#                     torch.cat([source_img[0], target_img[0]], dim=2),
-#                     torch.cat([warped_source_gt[0], warped_source_est[0]], dim=2),  # warped_source는 최종적으로 Tgt이미지가 나와야하는 것!
-#                     torch.cat([mask_valid[0].unsqueeze(0).repeat(3,1,1), # Repeat mask 3 times for RGB channels
-#                             warped_source_est_masked[0]], dim=2) # Show masked warped estimate in last column
-#                 ], dim=1)
-#                 # Save image grid locally
-#                 # save_image(img_grid.cpu(), f'./tmp.png')
+                dist = ((max_yx[1] - trg_point[0]) ** 2 + (max_yx[0] - trg_point[1]) ** 2) ** 0.5
+                if (dist / threshold) <= 0.1:
+                    correct += 1
+                    cat_correct += 1
+                    all_correct += 1
+                    
+                if VISUALIZE:
+                    circle_color = (0,0,255) if args.log_tool == 'wandb' else (255,0,0)
+                    # Draw source keypoint
+                    src_pt = (int(src_point[0]), int(src_point[1]))
+                    cv2.circle(combined_vis, src_pt, 5, circle_color, -1)
+                    
+                    # Draw predicted target keypoint (with src_w offset)
+                    vis_pred_x = int(max_yx[1] * scale_x)
+                    vis_pred_y = int(max_yx[0] * scale_y)
+                    pred_pt = (vis_pred_x + src_w, vis_pred_y)
+                    cv2.circle(combined_vis, pred_pt, 5, circle_color, -1)
+                    
+                    # Draw line - green for correct matches, red for incorrect
+                    if args.log_tool == 'wandb':
+                        line_color = (0,255,0) if (dist / threshold) <= 0.1 else (255,0,0)
+                    else:
+                        line_color = (0,255,0) if (dist / threshold) <= 0.1 else (0,0,255)
+                    cv2.line(combined_vis, src_pt, pred_pt, line_color, 1)
+            
+            if VISUALIZE: 
+                if args.log_tool == 'wandb':
+                    # log frequency
+                    if i % 75 == 0:
+                        wandb.log({f"vis_{cat}/pred_src{data['src_imname'].split('.')[0]}_trg{data['trg_imname'].split('.')[0]}": wandb.Image(combined_vis) })
+                
+                else:
+                    # Save visualization
+                    cv2.imwrite(f"{SAVE_PATH}/pred_src{data['src_imname'].split('.')[0]}_trg{data['trg_imname'].split('.')[0]}.jpg", combined_vis)    
+            
+            cat_pck.append(correct / total)
+        total_pck.extend(cat_pck)
 
-#                 # wandb.log({
-#                 #     f"vis_warped_flow_{sub_data}/img_{i_batch}": wandb.Image(
-#                 #         img_grid.cpu(),
-#                 #         caption=f"Top: Source | Target, Middle: Warped (GT) | Warped (Est), Bottom: Valid Mask | Masked Warped (Est), Img_size: {orig_H}x{orig_W}")})
-#             # =========================== Cursor ==================================
-        
-#         if plot_ind_images: # false
-#             plot_individual_images(path_to_save, 'image_{}'.format(i_batch), source_img, target_img, flow_est)
+        output[f'per_image_pck@0.1'][cat] = np.mean(cat_pck) * 100
+        output[f'per_point_pck@0.1'][cat] = cat_correct / cat_total * 100
+        print(f'{cat} per image PCK@0.1: {np.mean(cat_pck) * 100:.2f}')
+        print(f'{cat} per point PCK@0.1: {cat_correct / cat_total * 100:.2f}')
+        if args.log_tool == 'wandb':
+            wandb.log({f'per image PCK@0.1/{cat}': output[f'per_image_pck@0.1'][cat]})
+            wandb.log({f'per point PCK@0.1/{cat}': output[f'per_point_pck@0.1'][cat]})
+        # breakpoint()
 
-#         if plot or (plot_100 and i_batch < 100):# false
-#             if 'source_kps' in list(mini_batch.keys()):
-#                 # I = estimate_probability_of_confidence_interval_of_mixture_density(log_var_map_padded, R=1.0)
-#                 plot_sparse_keypoints(path_to_save, 'image_{}'.format(i_batch), source_img, target_img, flow_est,
-#                                       mini_batch['source_kps'][0][:, 0], mini_batch['source_kps'][0][:, 1],
-#                                       mini_batch['target_kps'][0][:, 0], mini_batch['target_kps'][0][:, 1],
-#                                       uncertainty_comp_est=uncertainty_est)
-#             else:
-#                 plot_flow_and_uncertainty(path_to_save, 'image_{}'.format(i_batch), source_img, target_img,
-#                                           flow_gt, flow_est)
-
-#         flow_est = flow_est.permute(0, 2, 3, 1)[mask_valid]
-#         flow_gt = flow_gt.permute(0, 2, 3, 1)[mask_valid]
-
-#         epe = torch.sum((flow_est - flow_gt) ** 2, dim=1).sqrt()
-
-#         epe_all_list.append(epe.view(-1).cpu().numpy())
-#         mean_epe_list.append(epe.mean().item())
-#         pck_0_05_list.append(epe.le(0.05*L_pck).float().mean().item())
-#         pck_0_01_list.append(epe.le(0.01*L_pck).float().mean().item())
-#         pck_0_1_list.append(epe.le(0.1*L_pck).float().mean().item())
-#         pck_0_15_list.append(epe.le(0.15*L_pck).float().mean().item())
-#         for t in range(len(pck_thresholds)):
-#             pck_per_image_curve[t, i_batch] = epe.le(pck_thresholds[t]*L_pck).float().mean().item()
-
-#         if 'category' in mini_batch.keys():
-#             if eval_buf['cls_pck'].get(mini_batch['category'][0]) is None:
-#                 eval_buf['cls_pck'][mini_batch['category'][0]] = []
-#             eval_buf['cls_pck'][mini_batch['category'][0]].append(epe.le(0.1 * L_pck).float().mean().item())
-
-#         if 'vpvar' in mini_batch.keys():
-#             for name in ['vpvar', 'scvar', 'trncn', 'occln']:
-#                 # different difficulties
-#                 # means it is spair
-#                 if eval_buf[name].get('{}'.format(mini_batch[name][0])) is None:
-#                     eval_buf[name]['{}'.format(mini_batch[name][0])] = []
-#                 eval_buf[name]['{}'.format(mini_batch[name][0])].append(epe.le(0.1 * L_pck).float().mean().item())
-
-#         if estimate_uncertainty:
-#             dict_list_uncertainties = compute_uncertainty_per_image(uncertainty_est, flow_gt, flow_est, mask_valid,
-#                                                                     dict_list_uncertainties)
-
-#     epe_all = np.concatenate(epe_all_list)
-#     pck_0_05_dataset = np.mean(epe_all <= 0.05 * L_pck)
-#     pck_0_01_dataset = np.mean(epe_all <= 0.01 * L_pck)
-#     pck_0_1_dataset = np.mean(epe_all <= 0.1 * L_pck)
-#     pck_0_15_dataset = np.mean(epe_all <= 0.15 * L_pck)
-
-#     output = {'AEPE': np.mean(mean_epe_list), 'PCK_0_05_per_image': np.mean(pck_0_05_list),
-#               'PCK_0_01_per_image': np.mean(pck_0_01_list), 'PCK_0_1_per_image': np.mean(pck_0_1_list),
-#               'PCK_0_15_per_image': np.mean(pck_0_15_list),
-#               'PCK_0_01_per_dataset': pck_0_01_dataset, 'PCK_0_05_per_dataset': pck_0_05_dataset,
-#               'PCK_0_1_per_dataset': pck_0_1_dataset, 'PCK_0_15_per_dataset': pck_0_15_dataset,
-#               'pck_threshold_alpha': pck_thresholds, 'pck_curve_per_image': np.mean(pck_per_image_curve, axis=1).tolist()
-#               }
-#     print("Validation EPE: %f, alpha=0_01: %f, alpha=0.05: %f" % (output['AEPE'], output['PCK_0_01_per_image'],
-#                                                                   output['PCK_0_05_per_image']))
-
-#     for name in eval_buf.keys():
-#         output[name] = {}
-#         for cls in eval_buf[name]:
-#             if eval_buf[name] is not None:
-#                 cls_avg = sum(eval_buf[name][cls]) / len(eval_buf[name][cls])
-#                 output[name][cls] = cls_avg
-
-#     if estimate_uncertainty:
-#         for uncertainty_name in dict_list_uncertainties.keys():
-#             output['uncertainty_dict_{}'.format(uncertainty_name)] = compute_average_of_uncertainty_metrics(
-#                 dict_list_uncertainties[uncertainty_name])
-#     return output
+    output[f'per_image_pck@0.1']['All'] = np.mean(total_pck) * 100
+    output[f'per_point_pck@0.1']['All'] = all_correct / all_total * 100
+    print(f'All per image PCK@0.1: {np.mean(total_pck) * 100:.2f}')
+    print(f'All per point PCK@0.1: {all_correct / all_total * 100:.2f}')
+    if args.log_tool == 'wandb':
+        wandb.log({f'per image PCK@0.1/All': output['per_image_pck@0.1']['All']})
+        wandb.log({f'per point PCK@0.1/All': output['per_point_pck@0.1']['All']})
+    
+    breakpoint()
+    return output 

@@ -320,29 +320,6 @@ class CroCoNet(nn.Module):
         T = int((tile.shape[0]) ** 0.5)
         return rearrange(tile, '(T1 T2) C H W -> C (T1 H) (T2 W)', T1=T, T2=T)
 
-    def estimate_flow(self, source_img, target_img):
-        if self.model == 'crocov2':
-            flow_est = self.forward(target_img, source_img)
-            flow_est = F.interpolate(flow_est, size=(self.img_size[0], self.img_size[1]), mode='bilinear', align_corners=True)
-            flow_est[:,0,:,:] *= self.img_size[0]/self.feature_size
-            flow_est[:,1,:,:] *= self.img_size[1]/self.feature_size
-
-        return flow_est
-    
-        output = self.forward(source_img, target_img)
-        if self.model == 'croco_catseg':
-            if isinstance(output, dict):
-                flow_est = output['flow_estimates'][0]
-            elif isinstance(output, list):
-                flow_est = output[0]  # fine flow
-            else:
-                flow_est = output
-        elif self.model == 'crocov2':
-            pass
-        else:
-            flow_est = output
-        return flow_est
-
     def zoom_in_batch(self, src_img, trg_img, zoom_ratio=(2,3), batch_size=1):
         flow_list = []
         uncertainty_list = []
@@ -484,6 +461,12 @@ class CroCoNet(nn.Module):
             large_log_var_map = torch.log(var_min / max_exp.exp() + torch.exp(large_log_var_map - max_exp)) + max_exp
         return large_log_var_map
 
+    def estimate_flow(self, source_img, target_img, output_correlation='ca_map'):
+        
+        if self.model == 'crocov2':
+            flow_est = self.forward(target_img, source_img, output_correlation=output_correlation) # 1 2 224 224 
+        return flow_est
+    
     def forward(self, img_target, img_source, output_correlation='ca_map'):
 
         B,_,H_224,W_224 = img_target.size()
@@ -549,9 +532,6 @@ class CroCoNet(nn.Module):
         flow_est[:,0,:,:] *= W_32/feature_size # 224/14
         flow_est[:,1,:,:] *= H_32/feature_size 
 
-        # 224/14
-        # flow_est (14) -> (224/14) -> flow_est(224)
-    
         if self.args.uncertainty:
             output_shape = self.img_size 
             PH, PW = output_shape[0]//16, output_shape[1]//16
@@ -572,95 +552,3 @@ class CroCoNet(nn.Module):
                     'uncertainty_estimates': [[log_var_map_coarse, weight_map_coarse]]}
         else:
             return flow_est # b 2 14 14 
-        
-        # break
-        if self.model == 'crocov2':
-            if self.reciprocity:
-                ## heuristic attention refine
-                tgt_camap = [attn.mean(dim=1).detach() for attn in attn_map]
-                src_camap = [attn.mean(dim=1).detach() for attn in attn_map_source]
-
-
-
-                ## heuristic attention refine
-                tgt_camap = [attn.mean(dim=1).detach() for attn in attn_map]
-                src_camap = [attn.mean(dim=1).detach() for attn in attn_map_source]
-                for i in range(len(tgt_camap)):
-                    tgt_camap[i][:,:,0]=0
-                for i in range(len(src_camap)):
-                    src_camap[i][:,:,0]=0
-
-                # tgt_camap = [attn.mean(dim=1).clone().detach() for attn in attn_map]
-                # src_camap = [attn.mean(dim=1).clone().detach() for attn in attn_map_source]
-                # tgt_camap = [ (camap_t + camap_s.transpose(-1,-2))/2 for (camap_t, camap_s) in zip(tgt_camap, src_camap)]
-                # tgt_camap = [ camap.softmax(dim=-1) for camap in tgt_camap]
-                # for i in range(len(tgt_camap)):
-                #     tgt_camap[i][:,:,0]= tgt_camap[i].min()   # b 196 196
-
-            else:
-                # average along head dim
-                tgt_camap = [attn.mean(dim=1).detach() for attn in tgt_camap]   
-                # heuristic attention refine
-                for i in range(len(tgt_camap)):
-                    tgt_camap[i][:,:,0]= tgt_camap[i].min()   # b 196 196
-
-            self.count+=1
-            # print('logged attn_map')
-            # vis_attn_map(tgt_camap, img_source, img_target, self.count, save_path='./vis/camap/pfpascal/REVERSE_eval512_croco512_recip_softargmax')
-
-            tgt_camap = torch.stack(tgt_camap, dim=1)
-            src_camap = torch.stack(src_camap, dim=1)
-            refined_corr = (tgt_camap.mean(dim=1) + src_camap.mean(dim=1).transpose(-1,-2))/2.
-
-            # tgt_attn_map = torch.stack(tgt_camap, dim=1).mean(dim=1)    # b 196 196
-
-            self.feature_size = self.img_size[0] // 16
-            self.x_normal = np.linspace(-1,1,self.feature_size)
-            self.x_normal = nn.Parameter(torch.tensor(self.x_normal, dtype=torch.float, requires_grad=False)).cuda()
-            self.y_normal = np.linspace(-1,1,self.feature_size)
-            self.y_normal = nn.Parameter(torch.tensor(self.y_normal, dtype=torch.float, requires_grad=False)).cuda()
-
-            grid_x, grid_y = self.soft_argmax(refined_corr.transpose(-1,-2).view(B, -1, self.feature_size, self.feature_size), beta=1e-4)
-            # grid_x, grid_y = self.argmax_to_flow(tgt_attn_map.transpose(-1,-2).view(B, -1, self.feature_size, self.feature_size))
-            self.grid_x = grid_x
-            self.grid_y = grid_y
-
-            coarse_flow = torch.cat((grid_x, grid_y), dim=1)
-            coarse_flow = unnormalise_and_convert_mapping_to_flow(coarse_flow)  # b 2 14 14 = b 2 self.feature_size self.feature_size
-
-            return coarse_flow 
-        
-        
-
-    
-        else:
-            ## heuristic attention refine
-            attn_map = [attn.mean(dim=1).detach() for attn in attn_map]
-            for i in range(len(attn_map)):
-                attn_map[i][:,:,0]=attn_map[i].min()
-            self.attn_map = attn_map
-            if self.reciprocity:
-                attn_map_source = [attn.mean(dim=1).detach() for attn in attn_map_source]
-                for i in range(len(attn_map_source)):
-                    attn_map_source[i][:,:,0]=attn_map_source[i].min()    
-            
-            if self.model == 'cats_swin':
-                decfeat = [feat.detach() for feat in decfeat]
-                if self.reciprocity:
-                    decfeat_source = [feat.detach() for feat in decfeat_source]
-                    output_flow = self.cats_swin(attn_map, decfeat, (H,W), feat_source, feat_target, attn_map_source, decfeat_source, img_target, img_source)
-                else:
-                    output_flow = self.cats_swin(attn_map, decfeat, (H,W), feat_source, feat_target)
-                return output_flow
-            
-            elif self.model == 'croco_catseg':
-                decfeat = [feat.detach() for feat in decfeat]
-                if self.reciprocity:
-                    decfeat_source = [feat.detach() for feat in decfeat_source]
-                    output_flow = self.cats_swin_decoder(attn_map, decfeat, (H,W), feat_source, feat_target, attn_map_source, decfeat_source, img_target, img_source, appearance_feature = [feat_targets[8],feat_targets[16]])
-                    # output_flow = [fine_flow, coarse_flow]
-                else:
-                    output_flow = self.cats_swin_decoder(attn_map, decfeat, (H,W), feat_source, feat_target, appearance_feature = [feat_targets[8],feat_targets[16]])
-                return output_flow
-
-            

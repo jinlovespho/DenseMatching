@@ -22,13 +22,16 @@ LOG_ARGS="
     --wandb_proj_name zeroshot_matching \
     --wandb_exp_name server5_spair_dift_sd \
     --save_dir ./vis/eval/spair_kpts/dift \
-    
+    --vis_pca \
 "
 
 # --vis_pred_kpts \
+# --vis_pca \
+
 
 ETC_ARGS="
     --seed 1997 \
+
 "
 
 CUDA=3

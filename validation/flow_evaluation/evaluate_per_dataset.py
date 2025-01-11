@@ -9,6 +9,7 @@ from tqdm import tqdm
 import pandas as pd
 from torch.utils.data import DataLoader
 import wandb
+from einops import rearrange
 
 from validation.flow_evaluation.metrics_uncertainty import (compute_average_of_uncertainty_metrics, compute_aucs,
                                                             compute_uncertainty_per_image)
@@ -668,6 +669,7 @@ def run_evaluation_semantic_dift(pipe, dataset_path, args):
                         'img1_name': image_path.split('.')[0]
                     }
                     
+                    print(f'saving attn maps for {cat} {image_path}')
                     image = pipe(img1_info=img1_info,
                                  prompt=prompt,
                                  negative_prompt="",
@@ -675,7 +677,7 @@ def run_evaluation_semantic_dift(pipe, dataset_path, args):
                                  height=args.eval_img_size[0],
                                  width=args.eval_img_size[1],
                                  guidance_scale=7.0,)
-                    print(f'saving attn maps for {cat} {image_path}')
+                    
                 
     else:
         print(f'MSG: {args.model} features already extracted')
@@ -705,6 +707,68 @@ def run_evaluation_semantic_dift(pipe, dataset_path, args):
         cat_pck = []
         cat_correct = 0
         cat_total = 0
+        
+        if args.vis_pca:
+            
+            for key, value in output_dict.items():
+                
+                img_name = key.split(".")[0]
+                vis_pca_save_path = f'./vis/pca/{args.model}/{cat}'
+                if not os.path.exists(vis_pca_save_path):
+                    os.makedirs(vis_pca_save_path)
+                    
+                feat = output_dict[key]     # 1 1280 48 48 
+                
+                _, _, H, W = feat.shape
+                
+                feat = rearrange(feat, 'b d h w -> b (h w) d')  # 1 2304 1280
+                feat = feat.squeeze(0)  # hw d
+                
+                # Get first PCA component to separate foreground/background
+                _,_,V = torch.pca_lowrank(feat)
+                pca1 = torch.matmul(feat, V[:, :1])
+                
+                def minmax_norm(x):
+                    """Min-max normalization along the token dimension (n,d) dim=n"""
+                    return (x - x.min(0).values) / (x.max(0).values - x.min(0).values)
+
+                pca1_norm = minmax_norm(pca1)
+                
+                # Segment foreground/background based on first PCA component
+                foreground = pca1_norm.squeeze() > 0.4
+                background = pca1_norm.squeeze() <= 0.4
+                
+                # Get 3 PCA components for foreground visualization
+                _, _, V = torch.pca_lowrank(feat[foreground])
+                pca3_fg = torch.matmul(feat[foreground], V[:, :3])
+                pca3_fg_norm = minmax_norm(pca3_fg)
+                
+                # Get 3 PCA components for full feature visualization
+                _, _, V_full = torch.pca_lowrank(feat)
+                pca3_full = torch.matmul(feat, V_full[:, :3])
+                pca3_full_norm = minmax_norm(pca3_full)
+                
+                # Define interpolation size
+                interp_size = (768, 768)
+                
+                # Reshape PCA components back to spatial dimensions
+                pca_vis_fg = torch.zeros((H*W, 3), device=feat.device)
+                pca_vis_fg[foreground] = pca3_fg_norm
+                pca_vis_fg = pca_vis_fg.reshape(H, W, 3).permute(2,0,1)
+                pca_vis_fg = F.interpolate(pca_vis_fg.unsqueeze(0), size=interp_size, mode='bilinear', align_corners=False).squeeze()
+                
+                pca_vis_full = pca3_full_norm.reshape(H, W, 3).permute(2,0,1)
+                pca_vis_full = F.interpolate(pca_vis_full.unsqueeze(0), size=interp_size, mode='bilinear', align_corners=False).squeeze()
+                
+                # Load and resize original image
+                img = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, key))
+                img = img.resize(interp_size)
+                img_tensor = transforms.ToTensor()(img).cuda()
+                
+                # Concatenate original and both PCA visualizations horizontally
+                vis = torch.cat([img_tensor, pca_vis_fg, pca_vis_full], dim=2)
+                # Save visualization using torchvision
+                save_image(vis, f'{vis_pca_save_path}/pca_{img_name}.jpg')
 
         print(f'MSG: Evaluating for category ==> {cat}')
         for i, json_path in enumerate(tqdm(cat_list)):

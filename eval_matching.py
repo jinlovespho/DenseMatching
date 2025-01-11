@@ -200,6 +200,7 @@ if __name__ == "__main__":
     parser.add_argument('--ensemble_size', default=8, type=int, help='ensemble size for getting an image ft map')
     parser.add_argument('--feat_already_extracted', action='store_true')
     parser.add_argument('--vis_pred_kpts', action='store_true')
+    parser.add_argument('--vis_pca', action='store_true')
     
     
 

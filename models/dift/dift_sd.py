@@ -4,8 +4,8 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 import numpy as np
 from typing import Any, Callable, Dict, List, Optional, Union
-from diffusers.models.unet_2d_condition import UNet2DConditionModel
-# from diffusers.models.unets.unet_2d_condition import UNet2DConditionModel
+# from diffusers.models.unet_2d_condition import UNet2DConditionModel
+from diffusers.models.unets.unet_2d_condition import UNet2DConditionModel
 from diffusers import DDIMScheduler
 import gc
 import os
@@ -204,13 +204,14 @@ class SDFeaturizer:
         onestep_pipe = onestep_pipe.to("cuda")
         onestep_pipe.enable_attention_slicing()
         onestep_pipe.enable_xformers_memory_efficient_attention()
+
         null_prompt_embeds = onestep_pipe._encode_prompt(
             prompt=null_prompt,
             device='cuda',
             num_images_per_prompt=1,
-            do_classifier_free_guidance=False) # [1, 77, dim]
+            do_classifier_free_guidance=True) # [1, 77, dim]
 
-        self.null_prompt_embeds = null_prompt_embeds
+        self.null_prompt_embeds = null_prompt_embeds[-1:]
         self.null_prompt = null_prompt
         self.pipe = onestep_pipe
 
@@ -231,7 +232,6 @@ class SDFeaturizer:
         Return:
             unet_ft: a torch tensor in the shape of [1, c, h, w]
         '''
-        breakpoint()
         img_tensor = img_tensor.repeat(ensemble_size, 1, 1, 1).cuda() # ensem, c, h, w
         if prompt == self.null_prompt:
             prompt_embeds = self.null_prompt_embeds
@@ -240,7 +240,8 @@ class SDFeaturizer:
                 prompt=prompt,
                 device='cuda',
                 num_images_per_prompt=1,
-                do_classifier_free_guidance=False) # [1, 77, dim]
+                do_classifier_free_guidance=True) # [1, 77, dim]
+            prompt_embeds = prompt_embeds[-1:]
         prompt_embeds = prompt_embeds.repeat(ensemble_size, 1, 1)
         unet_ft_all = self.pipe(
             img_tensor=img_tensor,
@@ -263,7 +264,8 @@ class SDFeaturizer4Eval(SDFeaturizer):
                     prompt=prompt,
                     device='cuda',
                     num_images_per_prompt=1,
-                    do_classifier_free_guidance=False) # [1, 77, dim]
+                    do_classifier_free_guidance=True) # [1, 77, dim]    # jinlovespho fixed
+                prompt_embeds = prompt_embeds[-1:]  # jinlovespho fixed
                 cat2prompt_embeds[cat] = prompt_embeds
             self.cat2prompt_embeds = cat2prompt_embeds
 
@@ -271,7 +273,6 @@ class SDFeaturizer4Eval(SDFeaturizer):
         self.pipe.text_encoder = None
         gc.collect()
         torch.cuda.empty_cache()
-
 
     @torch.no_grad()
     def forward(self,

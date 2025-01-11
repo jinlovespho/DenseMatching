@@ -21,7 +21,7 @@ import torch.nn.functional as F
 from torchvision.utils import save_image
 import torch.nn as nn 
 from models.modules.mod import unnormalise_and_convert_mapping_to_flow
-
+from torchvision import transforms
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 class FeatureL2Norm(nn.Module):
@@ -640,24 +640,48 @@ def run_evaluation_semantic_dift(pipe, dataset_path, args):
         print(f'{key}: {len(value)}')
     print('-'*100)
     
-    if args.is_feat_extracted == False:
-        print("MSG: saving all test images DIFT features...")
+    if not args.feat_already_extracted:
+        print(f'MSG: Extracting all test images {args.model} features...')
         os.makedirs(feat_save_path, exist_ok=True)
+        
         for cat in tqdm(all_cats):
             output_dict = {}
             image_list = cat2img[cat]
+            
             for image_path in image_list:
                 img = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, image_path))
-                output_dict[image_path] = pipe.forward(img,
-                                                    category=cat,
-                                                    img_size=args.eval_img_size,
-                                                    t=args.t,
-                                                    up_ft_index=args.up_ft_index,
-                                                    ensemble_size=args.ensemble_size)
-            torch.save(output_dict, os.path.join(feat_save_path, f'{cat}.pth'))
+                
+                if args.model == 'dift_sd':
+                    output_dict[image_path] = pipe.forward(img,
+                                                            category=cat,
+                                                            img_size=args.eval_img_size,
+                                                            t=args.t,
+                                                            up_ft_index=args.up_ft_index,
+                                                            ensemble_size=args.ensemble_size)
+                    torch.save(output_dict, os.path.join(feat_save_path, f'{cat}.pth'))
+                elif args.model == 'sd3_baseline':
+                    prompt = f"a photo of a {cat}"
+                    
+                    img1_info = {
+                        'img1': img,
+                        'img1_cat': cat,
+                        'img1_name': image_path.split('.')[0]
+                    }
+                    
+                    image = pipe(img1_info=img1_info,
+                                 prompt=prompt,
+                                 negative_prompt="",
+                                 num_inference_steps=28,
+                                 height=args.eval_img_size[0],
+                                 width=args.eval_img_size[1],
+                                 guidance_scale=7.0,)
+                    print(f'saving attn maps for {cat} {image_path}')
+                
     else:
-        print('MSG: DIFT features already extracted')
+        print(f'MSG: {args.model} features already extracted')
     print('-'*100)
+    
+    breakpoint()
     
     # Prepare evaluation
     output={}
@@ -802,5 +826,4 @@ def run_evaluation_semantic_dift(pipe, dataset_path, args):
         wandb.log({f'per image PCK@0.1/All': output['per_image_pck@0.1']['All']})
         wandb.log({f'per point PCK@0.1/All': output['per_point_pck@0.1']['All']})
     
-    breakpoint()
     return output 

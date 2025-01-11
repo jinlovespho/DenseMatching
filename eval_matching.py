@@ -114,7 +114,7 @@ def main(args, settings):
                                             path_to_save=path_to_save, plot=args.plot, plot_100=args.plot_100,
                                             plot_ind_images=args.plot_individual_images, args=args)
     elif args.dataset == 'spair':
-        if args.model == 'dift_sd':
+        if args.model == 'dift_sd' or args.model == 'sd3_baseline':
             output = run_evaluation_semantic_dift(pipe=network, dataset_path=settings.env.spair, args=args)
         else:
             test_set = datasets.SPairDataset(settings.env.spair, source_image_transform=input_transform,
@@ -198,7 +198,7 @@ if __name__ == "__main__":
     parser.add_argument('--t', default=261, type=int, help='t for diffusion')
     parser.add_argument('--up_ft_index', default=1, type=int, help='which upsampling block to extract the ft map')
     parser.add_argument('--ensemble_size', default=8, type=int, help='ensemble size for getting an image ft map')
-    parser.add_argument('--is_feat_extracted', type=bool, default=False)
+    parser.add_argument('--feat_already_extracted', action='store_true')
     parser.add_argument('--vis_pred_kpts', action='store_true')
     
     

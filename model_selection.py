@@ -57,7 +57,13 @@ def select_model(model_name, path_to_pre_trained_models, args):
         from models.dift.dift_sd import SDFeaturizer4Eval
         all_cats = ['aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'dog', 'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'train', 'tvmonitor']
         network = SDFeaturizer4Eval(cat_list=all_cats)
+    
+    elif model_name == 'sd3_baseline':
+        from diffusers import StableDiffusion3Pipeline
         
+        network = StableDiffusion3Pipeline.from_pretrained("stabilityai/stable-diffusion-3-medium-diffusers", torch_dtype=torch.float16)
+        network.to("cuda")
+            
     else:
         print('ERROR!!!! Model Name: ', model_name)
 

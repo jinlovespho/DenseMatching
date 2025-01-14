@@ -6,11 +6,11 @@ DATA_ARGS="
 "
 CUDA=0
 # Loop through different stop steps
-for stop_step in 20; do
+for stop_step in 25 20; do
     # Loop through different feature types
-    for feat_type in mmdit_attn mmdit_ff; do
+    for feat_type in mmdit_ff; do
         # Loop through different layers
-        for layer in 1 11 22; do
+        for layer in 0 6 11 16 23; do
 
             MODEL_ARGS="
                 --model sd3_single \
@@ -28,7 +28,7 @@ for stop_step in 20; do
                 --log_tool wandb \
                 --wandb_path ./wandb \
                 --wandb_proj_name zeroshot_matching \
-                --wandb_exp_name server5_gpu${CUDA}_spair_sd3_single_maxstep28_stopstep${stop_step}_${feat_type}_layer${layer} \
+                --wandb_exp_name server5_spair_sd3_single_maxstep28_stopstep${stop_step}_${feat_type}_layer${layer}_gpu${CUDA} \
                 --save_dir ./vis/spair/sd3_single/maxstep28_stopstep${stop_step}_${feat_type}_layer${layer} \
             "
 

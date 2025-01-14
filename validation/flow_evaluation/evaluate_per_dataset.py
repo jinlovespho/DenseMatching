@@ -859,7 +859,10 @@ def run_evaluation_semantic_dift(network, dataset_path, args):
         if args.log_tool == 'wandb':
             wandb.log({f'per image PCK@0.1/{cat}': output[f'per_image_pck@0.1'][cat]})
             wandb.log({f'per point PCK@0.1/{cat}': output[f'per_point_pck@0.1'][cat]})
-        # breakpoint()
+        
+        if output[f'per_image_pck@0.1'][cat] < 30.0:
+            print(f"BREAK!! for {args.save_dir.split('/')[-1]}, due to LOW PCK for {cat}: {output[f'per_image_pck@0.1'][cat]}")
+            break
 
     output[f'per_image_pck@0.1']['All'] = np.mean(total_pck) * 100
     output[f'per_point_pck@0.1']['All'] = all_correct / all_total * 100

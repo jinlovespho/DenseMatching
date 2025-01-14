@@ -58,11 +58,12 @@ def select_model(model_name, path_to_pre_trained_models, args):
         all_cats = ['aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'dog', 'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'train', 'tvmonitor']
         network = SDFeaturizer4Eval(cat_list=all_cats)
     
-    elif model_name == 'sd3_baseline':
-        from diffusers import StableDiffusion3Pipeline
-        
-        network = StableDiffusion3Pipeline.from_pretrained("stabilityai/stable-diffusion-3-medium-diffusers", torch_dtype=torch.float16)
-        network.to("cuda")
+    elif model_name == 'sd3_single':
+        from models.sd3_single.sd3_single import SD3Single
+        network = SD3Single(args)
+    
+    elif model_name == 'sd3_joint':
+        pass 
             
     else:
         print('ERROR!!!! Model Name: ', model_name)

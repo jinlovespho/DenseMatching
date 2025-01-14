@@ -8,7 +8,7 @@ import json
 import wandb
 
 from utils_data.image_transforms import ArrayToTensor
-from validation.flow_evaluation.evaluate_per_dataset import run_evaluation_generic, run_evaluation_eth3d, run_evaluation_semantic, run_evaluation_semantic_dift
+from validation.flow_evaluation.evaluate_per_dataset import run_evaluation_generic, run_evaluation_eth3d, run_evaluation_semantic, run_evaluation_semantic_dift, run_evaluation_semantic_joint
 from model_selection import select_model
 import admin.settings as ws_settings
 from admin.stats import merge_dictionaries
@@ -31,7 +31,7 @@ def main(args, settings):
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
-    name_to_save = args.model
+    name_to_save = args.save_dir.split('/')[-1]
     save_dict = {}
     path_to_save = name_to_save
     # define the network to use
@@ -114,8 +114,10 @@ def main(args, settings):
                                             path_to_save=path_to_save, plot=args.plot, plot_100=args.plot_100,
                                             plot_ind_images=args.plot_individual_images, args=args)
     elif args.dataset == 'spair':
-        if args.model == 'dift_sd' or args.model == 'sd3_baseline':
-            output = run_evaluation_semantic_dift(pipe=network, dataset_path=settings.env.spair, args=args)
+        if args.model == 'dift_sd' or args.model == 'sd3_single':
+            output = run_evaluation_semantic_dift(network=network, dataset_path=settings.env.spair, args=args)
+        elif args.model == 'sd3_baseline_joint':
+            output = run_evaluation_semantic_joint(pipe=network, dataset_path=settings.env.spair, args=args)
         else:
             test_set = datasets.SPairDataset(settings.env.spair, source_image_transform=input_transform,
                                                 target_image_transform=input_transform, split='test',
@@ -142,6 +144,14 @@ def main(args, settings):
     with open(path_file, 'w') as outfile:
         json.dump(save_dict, outfile, ensure_ascii=False, separators=(',', ':'))
         print('written to file ')
+    
+    if os.path.exists(args.feat_save_path) and output[f'per_image_pck@0.1']['All'] < 50.0:
+        print(f'DELETING FEATURES FOR {name_to_save}')
+        del_files = os.listdir(args.feat_save_path)
+        for file in del_files:
+            if file.endswith('.pth'):
+                os.remove(os.path.join(args.feat_save_path, file))
+    print(f'FINISHED EXPERIMENT: {name_to_save}')
 
 
 if __name__ == "__main__":
@@ -199,10 +209,23 @@ if __name__ == "__main__":
     parser.add_argument('--up_ft_index', default=1, type=int, help='which upsampling block to extract the ft map')
     parser.add_argument('--ensemble_size', default=8, type=int, help='ensemble size for getting an image ft map')
     parser.add_argument('--feat_already_extracted', action='store_true')
-    parser.add_argument('--vis_pred_kpts', action='store_true')
-    parser.add_argument('--vis_pca', action='store_true')
+
+    parser.add_argument('--vis_attn_maps', action='store_true')
     
     
+    parser.add_argument('--is_joint', action='store_true')
+    
+    parser.add_argument('--inf_max_step', type=int, default=28, help='max steps for inference')
+    parser.add_argument('--inf_stop_step', type=int, default=25, help='stop step for inference')
+    
+    parser.add_argument('--output_feat_type', type=str, default='query', help='output feature type')
+    parser.add_argument('--output_layer', type=int, default=0, help='output layer for sd3')
+    
+    # VIS_ARGS 
+    parser.add_argument('--WANDB_LOG_FREQ', type=int, default=50, help='wandb log frequency')
+    parser.add_argument('--VIS_PCA_SINGLE_IMG', action='store_true')
+    parser.add_argument('--VIS_PCA_JOINT_IMG', action='store_true')
+    parser.add_argument('--VIS_KPTS_PREDICTION', action='store_true')
 
     args = parser.parse_args()
 

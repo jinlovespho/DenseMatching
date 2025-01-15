@@ -226,6 +226,10 @@ if __name__ == "__main__":
     parser.add_argument('--VIS_PCA_SINGLE_IMG', action='store_true')
     parser.add_argument('--VIS_PCA_JOINT_IMG', action='store_true')
     parser.add_argument('--VIS_KPTS_PREDICTION', action='store_true')
+    
+    
+    # ETC_ARGS
+    parser.add_argument('--EVAL_SAMPLE_NUM', type=int, default=-1, help='evaluation sample number')
 
     args = parser.parse_args()
 

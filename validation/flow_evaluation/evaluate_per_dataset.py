@@ -599,20 +599,30 @@ def run_evaluation_semantic(network, test_dataloader, device, estimate_uncertain
                 dict_list_uncertainties[uncertainty_name])
     return output
 
+def print_exp_info(args):
+    print('-'*50)
+    print(f'Extracting {args.model} DIFT features!!!')
+    print(f'FEATURE SAVE PATH: {args.feat_save_path}')
+    print(f'EVAL SAMPLE NUM: {args.EVAL_SAMPLE_NUM}')
+    
+    if args.model == 'dift_sd':
+        print(f'ENSEMBLE SIZE: {args.ensemble_size}')
+        print(f'CURRENT TIMESTEP: {args.t}')
+        print(f'UP SAMPLING BLOCK INDEX: {args.up_ft_index}')
+        
+    elif args.model == 'sd3_single':  
+        print(f'INF_STOP_STEP: {args.inf_stop_step}/{args.inf_max_step}')
+        print(f'CURRENT TIMESTEP: {args.t}')
+        print(f'OUTPUT FEATURE TYPE: {args.output_feat_type}')
+        print(f'OUTPUT LAYER: {args.output_layer}')
+    print('-'*50)
 
 def run_evaluation_semantic_dift(network, dataset_path, args):
     
     all_cats, cat2json, cat2img = prepare_spair(dataset_path, args)
     
     if not args.feat_already_extracted:
-        print('-'*50)
-        print(f'Extracting {args.model} DIFT features!!!')
-        print(f'INF_STOP_STEP: {args.inf_stop_step}/{args.inf_max_step}')
-        print(f'CURRENT TIMESTEP: {args.t}')
-        print(f'OUTPUT FEATURE TYPE: {args.output_feat_type}')
-        print(f'OUTPUT LAYER: {args.output_layer}')
-        print('-'*50)
-        
+        print_exp_info(args)
         extract_and_save_feats(network, dataset_path, all_cats, cat2img, args)
     else:
         print(f'{args.model} DIFT features already extracted')
@@ -649,6 +659,10 @@ def run_evaluation_semantic_dift(network, dataset_path, args):
         
         # Define interpolation size for PCA visualization
         interp_size = (768, 768)
+        
+        # EVAL For a subset of categories (to save time)
+        if args.EVAL_SAMPLE_NUM != -1:
+            cat_list = cat_list[:args.EVAL_SAMPLE_NUM]
 
         print(f'MSG: Evaluating for category ==> {cat}')
         for i, json_path in enumerate(tqdm(cat_list)):
@@ -661,6 +675,9 @@ def run_evaluation_semantic_dift(network, dataset_path, args):
 
             src_ft = output_dict[data['src_imname']]
             trg_ft = output_dict[data['trg_imname']]
+            
+            src_ft = src_ft.cuda()
+            trg_ft = trg_ft.cuda()
             
             if len(src_ft.shape) == 3:
                 b,n,d = src_ft.shape 
@@ -860,8 +877,12 @@ def run_evaluation_semantic_dift(network, dataset_path, args):
             wandb.log({f'per image PCK@0.1/{cat}': output[f'per_image_pck@0.1'][cat]})
             wandb.log({f'per point PCK@0.1/{cat}': output[f'per_point_pck@0.1'][cat]})
         
-        if output[f'per_image_pck@0.1'][cat] < 30.0:
+        if output[f'per_image_pck@0.1']['aeroplane'] < 70.0:
             print(f"BREAK!! for {args.save_dir.split('/')[-1]}, due to LOW PCK for {cat}: {output[f'per_image_pck@0.1'][cat]}")
+            break
+        
+        if output[f'per_image_pck@0.1']['bicycle'] < 55.0:
+            print(f"BREAK!! for {args.save_dir.split('/')[-1]}, due to HIGH PCK for {cat}: {output[f'per_image_pck@0.1'][cat]}")
             break
 
     output[f'per_image_pck@0.1']['All'] = np.mean(total_pck) * 100

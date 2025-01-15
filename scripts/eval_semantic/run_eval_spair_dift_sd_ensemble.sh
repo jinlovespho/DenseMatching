@@ -11,7 +11,6 @@ MODEL_ARGS="
     --up_ft_index 1 \
     --ensemble_size 1 \
     --feat_save_path ./extracted_feats/spair_dift_ensemble1 \
-    --feat_already_extracted 
 
 "
 # --feat_already_extracted 
@@ -20,23 +19,23 @@ LOG_ARGS="
     --log_tool wandb \
     --wandb_path ./wandb \
     --wandb_proj_name zeroshot_matching \
-    --wandb_exp_name server5_spair_dift_sd_ensemble1 \
-    --save_dir ./vis/spair/dift_ensemble1 \
+    --wandb_exp_name server5_spair_EVALSAMPLE20_dift_sd_ensemble1 \
+    --save_dir ./vis/spair/EVALSAMPLE20_dift_sd_ensemble1 \
 "
 
 VIS_ARGS="
-    --WANDB_LOG_FREQ 50 \
+    --WANDB_LOG_FREQ 5 \
+    --VIS_PCA_SINGLE_IMG \
     --VIS_PCA_JOINT_IMG \
     --VIS_KPTS_PREDICTION \
 "
-# --VIS_PCA_SINGLE_IMG \
 
 ETC_ARGS="
     --seed 1997 \
-
+    --EVAL_SAMPLE_NUM 20 \
 "
 
-CUDA=3
+CUDA=0
 CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py ${DATA_ARGS} ${MODEL_ARGS} ${LOG_ARGS} ${ETC_ARGS} ${VIS_ARGS}
 
 

@@ -63,8 +63,16 @@ def select_model(model_name, path_to_pre_trained_models, args):
         network = SD3Single(args)
     
     elif model_name == 'sd3_joint':
-        pass 
-            
+        from models.sd3_joint.sd3_joint import SD3Joint
+        network = SD3Joint(args)      
+    
+    elif model_name == 'dit_single':
+        from models.dit_single.dit_single import DITSingle
+        network = DITSingle(args)
+    elif model_name == 'cogvid_single':
+        from models.cogvid_single.cogvid_single import CogVidSingle
+        network = CogVidSingle(args)
+    
     else:
         print('ERROR!!!! Model Name: ', model_name)
 

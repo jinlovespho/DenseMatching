@@ -114,10 +114,10 @@ def main(args, settings):
                                             path_to_save=path_to_save, plot=args.plot, plot_100=args.plot_100,
                                             plot_ind_images=args.plot_individual_images, args=args)
     elif args.dataset == 'spair':
-        if args.model == 'dift_sd' or args.model == 'sd3_single':
+        if args.model == 'dift_sd' or args.model == 'sd3_single' or args.model == 'dit_single' or args.model == 'cogvid_single':
             output = run_evaluation_semantic_dift(network=network, dataset_path=settings.env.spair, args=args)
-        elif args.model == 'sd3_baseline_joint':
-            output = run_evaluation_semantic_joint(pipe=network, dataset_path=settings.env.spair, args=args)
+        elif args.model == 'sd3_joint':
+            output = run_evaluation_semantic_joint(network=network, dataset_path=settings.env.spair, args=args)
         else:
             test_set = datasets.SPairDataset(settings.env.spair, source_image_transform=input_transform,
                                                 target_image_transform=input_transform, split='test',
@@ -132,26 +132,30 @@ def main(args, settings):
     else:
         raise ValueError('Unknown dataset, {}'.format(args.dataset))
 
-    save_dict[f'{name_to_save}'] = output
-    name_save_metrics = 'metrics_{}'.format(name_to_save)
-
-    path_file = '{}/{}.txt'.format(save_dir, name_save_metrics)
-    if os.path.exists(path_file):
-        with open(path_file, 'r') as outfile:
-            save_dict_existing = json.load(outfile)
-        save_dict = merge_dictionaries([save_dict_existing, save_dict])
-
-    with open(path_file, 'w') as outfile:
-        json.dump(save_dict, outfile, ensure_ascii=False, separators=(',', ':'))
-        print('written to file ')
+    if output is None:
+        return 0
     
-    if os.path.exists(args.feat_save_path) and output[f'per_image_pck@0.1']['All'] < 50.0:
-        print(f'DELETING FEATURES FOR {name_to_save}')
-        del_files = os.listdir(args.feat_save_path)
-        for file in del_files:
-            if file.endswith('.pth'):
-                os.remove(os.path.join(args.feat_save_path, file))
-    print(f'FINISHED EXPERIMENT: {name_to_save}')
+    else:
+        save_dict[f'{name_to_save}'] = output
+        name_save_metrics = 'metrics_{}'.format(name_to_save)
+
+        path_file = '{}/{}.txt'.format(save_dir, name_save_metrics)
+        if os.path.exists(path_file):
+            with open(path_file, 'r') as outfile:
+                save_dict_existing = json.load(outfile)
+            save_dict = merge_dictionaries([save_dict_existing, save_dict])
+
+        with open(path_file, 'w') as outfile:
+            json.dump(save_dict, outfile, ensure_ascii=False, separators=(',', ':'))
+            print('written to file ')
+        
+        if os.path.exists(args.feat_save_path) and output[f'per_image_pck@0.1']['aeroplane'] < 70.0:
+            print(f'DELETING FEATURES FOR {name_to_save}')
+            del_files = os.listdir(args.feat_save_path)
+            for file in del_files:
+                if file.endswith('.pth'):
+                    os.remove(os.path.join(args.feat_save_path, file))
+        print(f'FINISHED EXPERIMENT: {name_to_save}')
 
 
 if __name__ == "__main__":
@@ -200,7 +204,7 @@ if __name__ == "__main__":
     parser.add_argument('--wandb_exp_name', type=str, default='no_tag_assigned')
     
     # dift args 
-    parser.add_argument('--feat_save_path', type=str, default='/scratch/lt453/spair_ft/', help='path to save features')
+    parser.add_argument('--feat_save_path', type=str, default='./extracted_feats', help='path to save features')
     parser.add_argument('--img_size', nargs='+', type=int, default=[768, 768],
                         help='''in the order of [width, height], resize input image
                             to [w, h] before fed into diffusion model, if set to 0, will
@@ -210,10 +214,9 @@ if __name__ == "__main__":
     parser.add_argument('--ensemble_size', default=8, type=int, help='ensemble size for getting an image ft map')
     parser.add_argument('--feat_already_extracted', action='store_true')
 
-    parser.add_argument('--vis_attn_maps', action='store_true')
     
-    
-    parser.add_argument('--is_joint', action='store_true')
+    parser.add_argument('--joint_full_attn', action='store_true')
+    parser.add_argument('--CONCAT_WIDTH', action='store_true')
     
     parser.add_argument('--inf_max_step', type=int, default=28, help='max steps for inference')
     parser.add_argument('--inf_stop_step', type=int, default=25, help='stop step for inference')
@@ -227,6 +230,12 @@ if __name__ == "__main__":
     parser.add_argument('--VIS_PCA_JOINT_IMG', action='store_true')
     parser.add_argument('--VIS_KPTS_PREDICTION', action='store_true')
     
+    # VIS_ATTN_MAP
+    parser.add_argument('--VIS_ATTN_MAP', action='store_true')
+    parser.add_argument('--VIS_ATTN_SRC_TO_TRG', action='store_true')
+    parser.add_argument('--VIS_ATTN_TRG_TO_SRC', action='store_true')
+    parser.add_argument('--VIS_ATTN_SRC_TO_SRC', action='store_true')
+    parser.add_argument('--VIS_ATTN_TRG_TO_TRG', action='store_true')
     
     # ETC_ARGS
     parser.add_argument('--EVAL_SAMPLE_NUM', type=int, default=-1, help='evaluation sample number')

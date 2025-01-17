@@ -62,8 +62,14 @@ def vis_pca_single_img(dataset_path, img1_info, extracted_feat, img_idx, args):
     
     if len(feat.shape) == 3:
         b,n,d = feat.shape 
-        h = int(n ** 0.5)
-        feat = rearrange(feat, 'b (h w) d -> b d h w', h=h)
+        
+        if args.model == 'cogvid_single':
+            h = args.eval_img_size[0]//16 
+            w = args.eval_img_size[1]//16 
+            feat = rearrange(feat, 'b (h w) d -> b d h w', h=h, w=w)
+        else:
+            h = int(n ** 0.5)
+            feat = rearrange(feat, 'b (h w) d -> b d h w', h=h)
     
     _, _, H, W = feat.shape
     
@@ -101,11 +107,11 @@ def vis_pca_single_img(dataset_path, img1_info, extracted_feat, img_idx, args):
     
     # Load and resize original image
     img = Image.open(f'{dataset_path}/JPEGImages/{img1_cat}/{img1_name}.jpg')
-    img = img.resize(interp_size)
+    img = img.resize((interp_size[1], interp_size[0]))
     img_tensor = transforms.ToTensor()(img).cuda()
     
     # Concatenate original and both PCA visualizations horizontally
-    pca_combined_vis = torch.cat([img_tensor, pca_vis_fg, pca_vis_full], dim=2)
+    pca_combined_vis = torch.cat([img_tensor, pca_vis_full, pca_vis_fg], dim=2)
 
     if args.log_tool == 'wandb':
         # log frequency
@@ -125,6 +131,129 @@ def extract_and_save_feats(network, dataset_path, all_cats, cat2img, args):
         output_dict = {}
         image_list = cat2img[cat]
         
+        for img_idx, image_path in enumerate(image_list):
+            img1 = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, image_path))
+            
+            img1_info = {
+                'img1': img1,
+                'img1_cat': cat,
+                'img1_name': image_path.split('.')[0]
+                }
+            
+            if args.model == 'dift_sd':
+                extracted_feat = network.forward(   img1, # 1 1280 48 48
+                                                    category=cat,
+                                                    img_size=args.eval_img_size,
+                                                    t=args.t,
+                                                    up_ft_index=args.up_ft_index,
+                                                    ensemble_size=args.ensemble_size)
+            elif args.model == 'sd3_single':
+                prompt = f"a photo of a {cat}"
+                extracted_feat = network.forward(   img1_info=img1_info,
+                                                    img2_info=None,
+                                                    prompt=prompt,
+                                                    negative_prompt="",
+                                                    num_inference_steps=args.inf_max_step,
+                                                    height=args.eval_img_size[0],
+                                                    width=args.eval_img_size[1],
+                                                    guidance_scale=7.0,
+                                                    do_classifier_free_guidance=True)
+            elif args.model == 'dit_single':
+                extracted_feat = network.forward(   img1_info=img1_info,    
+                                                    img2_info=None,
+                                                    num_inference_steps=args.inf_max_step,
+                                                    height=args.eval_img_size[0],
+                                                    width=args.eval_img_size[1],
+                                                    guidance_scale=7.0,
+                                                    do_classifier_free_guidance=True)
+                # extracted_feat: 1 1024 1152
+            
+            elif args.model == 'cogvid_single':
+                prompt = f"a photo of a {cat}"
+                extracted_feat = network.forward(   img1_info=img1_info,
+                                                    img2_info=None,
+                                                    num_frames=1,
+                                                    prompt=prompt,
+                                                    negative_prompt="",
+                                                    num_inference_steps=args.inf_max_step,
+                                                    height=args.eval_img_size[0],
+                                                    width=args.eval_img_size[1],
+                                                    guidance_scale=7.0,
+                                                    do_classifier_free_guidance=True)
+                # extracted_feat: 1 1350 1920
+            else:
+                raise ValueError(f'Unknown model: {args.model}')
+
+            if args.VIS_PCA_SINGLE_IMG:
+                vis_pca_single_img(dataset_path, img1_info, extracted_feat, img_idx, args)
+            
+            # save feats per categories
+            output_dict[image_path] = extracted_feat
+    
+        torch.save(output_dict, os.path.join(FEAT_SAVE_PATH, f'{cat}.pth'))
+        print(f'MSG: saved feats for {cat}, in {FEAT_SAVE_PATH}')
+
+
+
+def extract_and_save_feats_joint(network, dataset_path, all_cats, cat2json, cat2img, args):
+    
+    FEAT_SAVE_PATH = args.feat_save_path
+    os.makedirs(FEAT_SAVE_PATH, exist_ok=True)
+    
+    breakpoint()
+    
+    for cat in tqdm(all_cats):
+            cat_list = cat2json[cat]
+            
+            output_dict = {}
+            for i, json_path in enumerate(tqdm(cat_list)):
+                with open(os.path.join(dataset_path, 'PairAnnotation/test', json_path)) as temp_f:
+                    data = json.load(temp_f)
+                
+                print('current cat: ', cat)
+                print('current json_path: ', json_path)
+                
+                src_imname = data['src_imname']
+                trg_imname = data['trg_imname']
+                
+                src_img_size = data['src_imsize'][:2][::-1]
+                trg_img_size = data['trg_imsize'][:2][::-1]
+                
+                img_src = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, src_imname))
+                img_trg = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, trg_imname))
+                
+                prompt = f"a photo of a {cat}"
+                    
+                img1_info = {
+                    'img1': img_src,
+                    'img1_cat': cat,
+                    'img1_name': src_imname.split('.')[0]
+                }
+                
+                img2_info = {
+                    'img2': img_trg,
+                    'img2_cat': cat,
+                    'img2_name': trg_imname.split('.')[0]
+                }
+                
+                breakpoint()
+                # print(f'saving attn maps for {cat} {image_path}')
+                output_dict[image_path] = pipe( img1_info=img1_info,
+                                                img2_info=img2_info,
+                                                prompt=prompt,
+                                                negative_prompt="",
+                                                num_inference_steps=28,
+                                                height=args.eval_img_size[0],
+                                                width=args.eval_img_size[1],
+                                                guidance_scale=7.0,)
+    
+
+    
+    for cat in tqdm(all_cats):
+        output_dict = {}
+        image_list = cat2img[cat]
+        
+        breakpoint()
         for img_idx, image_path in enumerate(image_list):
             img1 = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, image_path))
             

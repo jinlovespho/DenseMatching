@@ -106,7 +106,7 @@ class SD3Single:
         skip_layer_guidance_scale=2.8
         skip_layer_guidance_stop=0.2
         skip_layer_guidance_start=0.01
-        generator=None
+        generator=torch.Generator(device=self.pipe._execution_device).manual_seed(self.args.seed)
         scheduler_kwargs = {}
         sigmas=None
         lora_scale=None

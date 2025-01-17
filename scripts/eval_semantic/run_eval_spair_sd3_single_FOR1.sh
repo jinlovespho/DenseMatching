@@ -6,11 +6,11 @@ DATA_ARGS="
 "
 CUDA=1
 # Loop through different stop steps
-for stop_step in 19 20; do
+for stop_step in 26; do
     # Loop through different feature types
     for feat_type in mmdit_attn; do
         # Loop through different layers
-        for layer in 9 10 11; do
+        for layer in 8 12; do
 
             MODEL_ARGS="
                 --model sd3_single \
@@ -33,7 +33,7 @@ for stop_step in 19 20; do
             "
 
             VIS_ARGS="
-                --WANDB_LOG_FREQ 50 \
+                --WANDB_LOG_FREQ 4 \
                 --VIS_PCA_SINGLE_IMG \
                 --VIS_PCA_JOINT_IMG \
                 --VIS_KPTS_PREDICTION \

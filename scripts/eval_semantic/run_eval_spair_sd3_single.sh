@@ -15,9 +15,10 @@ MODEL_ARGS="
     --inf_max_step 28 \
     --inf_stop_step ${STOP_STEP} \
     --feat_save_path ./extracted_feats/spair_sd3_single/maxstep28_stopstep${STOP_STEP}_${FEAT_TYPE}_layer${LAYER} \
-    --feat_already_extracted \
+    
 
 "
+# --feat_already_extracted \
 
 LAYER_SELECTION_ARGS="
     --output_feat_type ${FEAT_TYPE} \

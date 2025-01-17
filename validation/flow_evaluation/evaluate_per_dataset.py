@@ -26,7 +26,7 @@ from models.modules.mod import unnormalise_and_convert_mapping_to_flow
 from torchvision import transforms
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-from validation.sd3_utils import prepare_spair, extract_and_save_feats
+from validation.sd3_utils import prepare_spair, extract_and_save_feats, extract_and_save_feats_joint
 
 class FeatureL2Norm(nn.Module):
     """
@@ -600,22 +600,56 @@ def run_evaluation_semantic(network, test_dataloader, device, estimate_uncertain
     return output
 
 def print_exp_info(args):
-    print('-'*50)
+    
+    if args.model=='sd3_single' or args.model=='sd3_joint':
+        # inf_max_step=28
+        timesteps=[ 1000.0000,  987.3806,  974.1077,  960.1293,  945.3875,  929.8179,
+                    913.3490,  895.9003,  877.3819,  857.6923,  836.7167,  814.3248,
+                    790.3683,  764.6771,  737.0558,  707.2785,  675.0823,  640.1602,
+                    602.1506,  560.6250,  515.0721,  464.8760,  409.2888,  347.3926,
+                    278.0488,  199.8270,  110.9057,    8.9286]
+    elif args.model=='dit_single':
+        # inf_max_step=25 
+        timesteps=[ 999, 959, 919, 879, 839, 799, 759, 719, 679, 639, 599, 559, 519, 480,
+                    440, 400, 360, 320, 280, 240, 200, 160, 120,  80,  40]
+    elif args.model=='cogvid_single':
+        # inf_max_step=50
+        timesteps=[ 999, 979, 959, 939, 919, 899, 879, 859, 839, 819, 799, 779, 759, 739,
+                    719, 699, 679, 659, 639, 619, 599, 579, 559, 539, 519, 499, 479, 459,
+                    439, 419, 399, 379, 359, 339, 319, 299, 279, 259, 239, 219, 199, 179,
+                    159, 139, 119,  99,  79,  59,  39,  19]
+    
+    print('='*50)
     print(f'Extracting {args.model} DIFT features!!!')
+    
+    print('-'*50)
     print(f'FEATURE SAVE PATH: {args.feat_save_path}')
+    print(f'VIS SAVE DIR: {args.save_dir}')
     print(f'EVAL SAMPLE NUM: {args.EVAL_SAMPLE_NUM}')
     
+    print('-'*50)
     if args.model == 'dift_sd':
         print(f'ENSEMBLE SIZE: {args.ensemble_size}')
         print(f'CURRENT TIMESTEP: {args.t}')
         print(f'UP SAMPLING BLOCK INDEX: {args.up_ft_index}')
         
-    elif args.model == 'sd3_single':  
+    else:  
         print(f'INF_STOP_STEP: {args.inf_stop_step}/{args.inf_max_step}')
-        print(f'CURRENT TIMESTEP: {args.t}')
+        print(f'CURRENT TIMESTEP: {timesteps[args.inf_stop_step]}')
         print(f'OUTPUT FEATURE TYPE: {args.output_feat_type}')
         print(f'OUTPUT LAYER: {args.output_layer}')
-    print('-'*50)
+        print('-'*50)
+        print(f'VIS_PCA_SINGLE_IMG: {args.VIS_PCA_SINGLE_IMG}')
+        print(f'VIS_PCA_JOINT_IMG: {args.VIS_PCA_JOINT_IMG}')
+        print(f'VIS_KPTS_PREDICTION: {args.VIS_KPTS_PREDICTION}')
+        print('-'*50)
+        print(f'VIS_ATTN_MAP: {args.VIS_ATTN_MAP}')
+        print(f'VIS ATTN SRC TO TRG: {args.VIS_ATTN_SRC_TO_TRG}')
+        print(f'VIS ATTN TRG TO SRC: {args.VIS_ATTN_TRG_TO_SRC}')
+        print(f'VIS ATTN SRC TO SRC: {args.VIS_ATTN_SRC_TO_SRC}')
+        print(f'VIS ATTN TRG TO TRG: {args.VIS_ATTN_TRG_TO_TRG}')
+    print('='*50)
+
 
 def run_evaluation_semantic_dift(network, dataset_path, args):
     
@@ -681,9 +715,17 @@ def run_evaluation_semantic_dift(network, dataset_path, args):
             
             if len(src_ft.shape) == 3:
                 b,n,d = src_ft.shape 
-                h = int(n ** 0.5)
-                src_ft = rearrange(src_ft, 'b (h w) d -> b d h w', h=h)
-                trg_ft = rearrange(trg_ft, 'b (h w) d -> b d h w', h=h)
+        
+                if args.model == 'cogvid_single':
+                    h = args.eval_img_size[0]//16 
+                    w = args.eval_img_size[1]//16 
+                    src_ft = rearrange(src_ft, 'b (h w) d -> b d h w', h=h, w=w)
+                    trg_ft = rearrange(trg_ft, 'b (h w) d -> b d h w', h=h, w=w)
+                    
+                else:
+                    h = int(n ** 0.5)
+                    src_ft = rearrange(src_ft, 'b (h w) d -> b d h w', h=h)
+                    trg_ft = rearrange(trg_ft, 'b (h w) d -> b d h w', h=h)
                 
             # ======================== VISUALIZE JOINT IMG PCA ========================
             if args.VIS_PCA_JOINT_IMG:
@@ -839,7 +881,7 @@ def run_evaluation_semantic_dift(network, dataset_path, args):
                     all_correct += 1
                     
                 if args.VIS_KPTS_PREDICTION:
-                    circle_color = (0,0,255) if args.log_tool == 'wandb' else (255,0,0)
+                    circle_color = (255,0,0)    # BGR
                     # Draw source keypoint
                     src_pt = (int(src_point[0]), int(src_point[1]))
                     cv2.circle(combined_vis, src_pt, 5, circle_color, -1)
@@ -851,17 +893,14 @@ def run_evaluation_semantic_dift(network, dataset_path, args):
                     cv2.circle(combined_vis, pred_pt, 5, circle_color, -1)
                     
                     # Draw line - green for correct matches, red for incorrect
-                    if args.log_tool == 'wandb':
-                        line_color = (0,255,0) if (dist / threshold) <= 0.1 else (255,0,0)
-                    else:
-                        line_color = (0,255,0) if (dist / threshold) <= 0.1 else (0,0,255)
+                    line_color = (0,255,0) if (dist / threshold) <= 0.1 else (0,0,255)
                     cv2.line(combined_vis, src_pt, pred_pt, line_color, 1)
             
             if args.VIS_KPTS_PREDICTION: 
                 if args.log_tool == 'wandb':
                     # log frequency
                     if i % args.WANDB_LOG_FREQ == 0:
-                        wandb.log({f"vis_KPTS_{cat}/pred_src{data['src_imname'].split('.')[0]}_trg{data['trg_imname'].split('.')[0]}": wandb.Image(combined_vis) })
+                        wandb.log({f"vis_KPTS_{cat}/pred_src{data['src_imname'].split('.')[0]}_trg{data['trg_imname'].split('.')[0]}": wandb.Image(combined_vis[..., ::-1]) })
                 else:
                     cv2.imwrite(f"{SAVE_PATH_KPTS}/pred_src{data['src_imname'].split('.')[0]}_trg{data['trg_imname'].split('.')[0]}.jpg", combined_vis)    
             
@@ -877,13 +916,8 @@ def run_evaluation_semantic_dift(network, dataset_path, args):
             wandb.log({f'per image PCK@0.1/{cat}': output[f'per_image_pck@0.1'][cat]})
             wandb.log({f'per point PCK@0.1/{cat}': output[f'per_point_pck@0.1'][cat]})
         
-        if output[f'per_image_pck@0.1']['aeroplane'] < 70.0:
-            print(f"BREAK!! for {args.save_dir.split('/')[-1]}, due to LOW PCK for {cat}: {output[f'per_image_pck@0.1'][cat]}")
-            break
-        
-        if output[f'per_image_pck@0.1']['bicycle'] < 55.0:
-            print(f"BREAK!! for {args.save_dir.split('/')[-1]}, due to HIGH PCK for {cat}: {output[f'per_image_pck@0.1'][cat]}")
-            break
+        # if cat == 'cat':
+        #     break 
 
     output[f'per_image_pck@0.1']['All'] = np.mean(total_pck) * 100
     output[f'per_point_pck@0.1']['All'] = all_correct / all_total * 100
@@ -896,7 +930,442 @@ def run_evaluation_semantic_dift(network, dataset_path, args):
     return output 
 
 
-def run_evaluation_semantic_joint(pipe, dataset_path, args):
+
+
+def run_evaluation_semantic_joint(network, dataset_path, args):
+    
+    all_cats, cat2json, cat2img = prepare_spair(dataset_path, args)
+    print_exp_info(args)
+    
+    # if not args.feat_already_extracted:
+        
+    #     breakpoint()
+    #     extract_and_save_feats_joint(network, dataset_path, all_cats, cat2json, cat2img, args)
+    # else:
+    #     print(f'{args.model} DIFT features already extracted')
+    
+    # Prepare evaluation
+    output={}
+    output[f'per_image_pck@0.1']={}
+    output[f'per_point_pck@0.1']={}
+    total_pck = []
+    all_correct = 0
+    all_total = 0
+    
+    '''
+        all_cats: ['aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'dog', 'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'train', 'tvmonitor']
+        cat2json.keys(): ['aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'dog', 'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'train', 'tvmonitor']
+        cat2json['aeroplane']: ['000250-2008_008607-2009_002388:aeroplane.json', '000540-2010_004817-2008_008607:aeroplane.json', ... ]
+        len(cat2json['aeroplane']): 690
+    '''
+     
+    for cat in all_cats:
+        cat_list = cat2json[cat]
+        # output_dict = torch.load(os.path.join(args.feat_save_path, f'{cat}.pth'), weights_only=True)
+
+        cat_pck = []
+        cat_correct = 0
+        cat_total = 0
+        
+        # Define interpolation size for PCA visualization
+        interp_size = (768, 768)
+        
+        # EVAL For a subset of categories (to save time)
+        if args.EVAL_SAMPLE_NUM != -1:
+            cat_list = cat_list[:args.EVAL_SAMPLE_NUM]
+
+        print(f'MSG: Evaluating for category ==> {cat}')
+        for i, json_path in enumerate(tqdm(cat_list)):
+
+            with open(os.path.join(dataset_path, 'PairAnnotation/test', json_path)) as temp_f:
+                data = json.load(temp_f)
+            
+            src_imname = data['src_imname']
+            trg_imname = data['trg_imname']
+            
+            src_img_size = data['src_imsize'][:2][::-1]
+            trg_img_size = data['trg_imsize'][:2][::-1]
+            
+            img_src = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, src_imname))
+            img_trg = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, trg_imname))
+            
+            prompt = f"a photo of a {cat}"
+                
+            img1_info = {
+                'img1': img_src,
+                'img1_cat': cat,
+                'img1_name': src_imname.split('.')[0]
+            }
+            
+            img2_info = {
+                'img2': img_trg,
+                'img2_cat': cat,
+                'img2_name': trg_imname.split('.')[0]
+            }
+            
+            
+            if args.model == 'sd3_joint':
+                extracted_feat = network.forward(   img1_info=img1_info,
+                                                    img2_info=img2_info,
+                                                    prompt=prompt,
+                                                    negative_prompt="",
+                                                    num_inference_steps=args.inf_max_step,
+                                                    height=args.eval_img_size[0],
+                                                    width=args.eval_img_size[1],
+                                                    guidance_scale=7.0,
+                                                    do_classifier_free_guidance=False)
+                
+                ''' extracted_feat: 24 2 2304 1536
+                '''
+                
+            if args.VIS_ATTN_MAP:
+                
+                # OUTPUT FEATURE MUST BE ATTENTION MAPS! 
+                assert args.output_feat_type == 'attn_map'
+                
+                attn_maps12 = extracted_feat[:,0]   # src->trg: 24 2304 2304 
+                attn_maps21 = extracted_feat[:,1]   # trg->src: 24 2304 2304 
+                attn_maps11 = extracted_feat[:,2]   # src->src: 24 2304 2304 
+                attn_maps22 = extracted_feat[:,3]   # trg->trg: 24 2304 2304 
+                
+                # 0. SELECT ATTN MAP TO VISUALIZE
+                if args.VIS_ATTN_SRC_TO_TRG:
+                    attn_maps_img = attn_maps12
+                    attn_map_direction = 'attn_src_to_trg'  
+                elif args.VIS_ATTN_TRG_TO_SRC:
+                    attn_maps_img = attn_maps21
+                    attn_map_direction = 'attn_trg_to_src'
+                elif args.VIS_ATTN_SRC_TO_SRC:
+                    attn_maps_img = attn_maps11
+                    attn_map_direction = 'attn_src_to_src'
+                elif args.VIS_ATTN_TRG_TO_TRG:
+                    attn_maps_img = attn_maps22
+                    attn_map_direction = 'attn_trg_to_trg'
+                else:
+                    print('ERROR!!!! VIS_ATTN_MAP')
+                
+                # 1. prepare images
+                img1_tensor = network.pipe.image_processor.preprocess(img1_info['img1'], args.eval_img_size[0], args.eval_img_size[1])     # 1 3 768 768
+                img2_tensor = network.pipe.image_processor.preprocess(img2_info['img2'], args.eval_img_size[0], args.eval_img_size[1])     # 1 3 768 768
+                
+                img1_tensor_re = (img1_tensor + 1) / 2  # [0,1]
+                img1_np = (img1_tensor_re.squeeze().permute(1,2,0).cpu().numpy() * 255.0).astype(np.uint8) # 768 768 3 
+                img1_np = np.ascontiguousarray(img1_np) # 768 768 3 
+                
+                img2_tensor_re = (img2_tensor + 1) / 2  # [0,1]
+                img2_np = (img2_tensor_re.squeeze().permute(1,2,0).cpu().numpy() * 255.0).astype(np.uint8) # 768 768 3 
+                img2_np = np.ascontiguousarray(img2_np) # 768 768 3 
+                
+                # 2. prepare size infos
+                _, _, H, W = img1_tensor.shape 
+                img_len = attn_maps_img.shape[1]
+                ps=16       # not real patch size, but patch size for visualization
+                pH = int(img_len ** 0.5)     # num patches in height 
+                pW = int(img_len ** 0.5)     # num patches in width 
+                N = pH * pW  # total num patches
+                
+                # 3. set vis points 
+                num_vis=30
+                vis_points = torch.rand(N).argsort()[:num_vis].tolist()
+                
+                # breakpoint()
+                vis_layers = [0, 1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 23]
+                for l in vis_layers: 
+                    for point in vis_points:
+                        
+                        src_name = img1_info['img1_name']
+                        trg_name = img2_info['img2_name']
+                        
+                        vis_save_path = f"{args.save_dir}/{attn_map_direction}/{img1_info['img1_cat']}/src{src_name}_trg{trg_name}/layer{l}"                        
+                        # set save path 
+                        if not os.path.exists(vis_save_path):
+                            os.makedirs(vis_save_path)
+                        
+                        img1_np_vis = img1_np.copy()
+                        img2_np_vis = img2_np.copy()
+                        
+                        # get l-th layer attention map with query_point
+                        attn_mask = attn_maps_img[l][point].view(pH,pW)
+                        attn_mask = F.interpolate(attn_mask[None, None], size=(H, W), mode='bilinear', align_corners=False).squeeze()
+                        attn_mask = (attn_mask-attn_mask.min())/(attn_mask.max()-attn_mask.min())
+
+                        idx_h = point // pW 
+                        idx_w = point % pW 
+                        
+                        # Draw the query point as a circle
+                        center = (idx_w*ps + ps//2, idx_h*ps + ps//2)
+                        cv2.circle(img1_np_vis, center, ps//2, (0,0,255), -1)
+                        cv2.circle(img1_np_vis, center, ps//2, (255,255,255), 2)
+                        
+                        attn_heatmap = cv2.applyColorMap(np.uint8(255*attn_mask), cv2.COLORMAP_JET)
+                        
+                        if args.VIS_ATTN_SRC_TO_SRC:
+                            img2_tmp = img2_np_vis.copy()
+                            img2_np_vis = img1_np_vis
+                        
+                        masked_img = img2_np_vis/255. + attn_heatmap/255.
+                        masked_img = masked_img / masked_img.max()
+                        
+                        if args.VIS_ATTN_SRC_TO_SRC:
+                            combined_img = np.concatenate([img1_np_vis, np.uint8(255*masked_img), img2_tmp], axis=1)
+                        else:     
+                            # Combine source and target images side by side
+                            combined_img = np.concatenate([img1_np_vis, np.uint8(255*masked_img)], axis=1)
+                        cv2.imwrite(f"{vis_save_path}/src{src_name}_trg{trg_name}_point{point}.jpg", combined_img)
+                continue
+            
+            feat = extracted_feat[args.output_layer]    # 2 2304 1536
+            src_ft = feat[0].unsqueeze(0)   # 1 2304 64
+            trg_ft = feat[1].unsqueeze(0)   # 1 2304 64
+            
+            src_ft = src_ft.cuda()  # 1 2304 64
+            trg_ft = trg_ft.cuda()  # 1 2304 64
+            
+            if len(src_ft.shape) == 3:
+                b,n,d = src_ft.shape 
+                if args.CONCAT_WIDTH:
+                    h = args.eval_img_size[0] // 2 // 16
+                    w = args.eval_img_size[1] // 16
+                    src_ft = rearrange(src_ft, 'b (h w) d -> b d h w', h=h, w=w)
+                    trg_ft = rearrange(trg_ft, 'b (h w) d -> b d h w', h=h, w=w)
+                else: 
+                    h = args.eval_img_size[0] // 16
+                    w = args.eval_img_size[1] // 16
+                    src_ft = rearrange(src_ft, 'b (h w) d -> b d h w', h=h, w=w)
+                    trg_ft = rearrange(trg_ft, 'b (h w) d -> b d h w', h=h, w=w)
+                
+            # ======================== VISUALIZE JOINT IMG PCA ========================
+            if args.VIS_PCA_JOINT_IMG:
+                
+                SAVE_PATH_JOINT_PCA = f'{args.save_dir}/pca_joint/{cat}'
+                if not os.path.exists(SAVE_PATH_JOINT_PCA):
+                    os.makedirs(SAVE_PATH_JOINT_PCA)
+                
+                _, _, H, W = src_ft.shape 
+                N = H*W
+                
+                src_feat = src_ft.clone() 
+                trg_feat = trg_ft.clone() 
+                
+                src_feat = rearrange(src_feat, 'b d h w -> b (h w) d')  # 1 2304 1280
+                src_feat = src_feat.squeeze(0)  # hw d
+                
+                trg_feat = rearrange(trg_feat, 'b d h w -> b (h w) d')  # 1 2304 1280
+                trg_feat = trg_feat.squeeze(0)  # hw d 
+                
+                joint_feat = torch.cat([src_feat, trg_feat], dim=0)
+                joint_feat = joint_feat.to(torch.float32).cuda()
+                _,_,V = torch.pca_lowrank(joint_feat)
+                pca1 = torch.matmul(joint_feat, V[:, :1])
+                
+                def minmax_norm(x):
+                    """Min-max normalization along the token dimension (n,d) dim=n"""
+                    return (x - x.min(0).values) / (x.max(0).values - x.min(0).values)
+
+                pca1_norm = minmax_norm(pca1)
+                
+                # Segment foreground/background based on first PCA component
+                foreground = pca1_norm.squeeze() > 0.4
+                background = pca1_norm.squeeze() <= 0.4
+                
+                # Get 3 PCA components for foreground visualization
+                _, _, V = torch.pca_lowrank(joint_feat[foreground])
+                pca3_fg = torch.matmul(joint_feat[foreground], V[:, :3])
+                pca3_fg_norm = minmax_norm(pca3_fg)
+                
+                # Get 3 PCA components for full feature visualization
+                _, _, V_full = torch.pca_lowrank(joint_feat)
+                pca3_full = torch.matmul(joint_feat, V_full[:, :3])
+                pca3_full_norm = minmax_norm(pca3_full)
+                
+                # Foreground only visualization
+                pca_vis_joint = torch.zeros(2*N, 3).cuda()
+                pca_vis_joint[foreground] = pca3_fg_norm 
+                
+                pca_joint_vis = rearrange(pca_vis_joint, '(b n) d -> b n d', b=2) 
+                src_pca = pca_joint_vis[0]
+                trg_pca = pca_joint_vis[1] 
+                
+                src_pca = rearrange(src_pca, '(h w) d -> d h w', h=H)
+                trg_pca = rearrange(trg_pca, '(h w) d -> d h w', h=H)
+                
+                up_src_pca = F.interpolate(src_pca.unsqueeze(0), size=interp_size, mode='bilinear', align_corners=False).squeeze()
+                up_trg_pca = F.interpolate(trg_pca.unsqueeze(0), size=interp_size, mode='bilinear', align_corners=False).squeeze()
+                
+                joint_imgs_pca_fg = torch.cat([up_src_pca, up_trg_pca], dim=2)
+                
+                # Full feature visualization including background
+                pca_joint_vis_full = rearrange(pca3_full_norm, '(b n) d -> b n d', b=2)
+                src_pca_full = pca_joint_vis_full[0]
+                trg_pca_full = pca_joint_vis_full[1]
+                
+                src_pca_full = rearrange(src_pca_full, '(h w) d -> d h w', h=H)
+                trg_pca_full = rearrange(trg_pca_full, '(h w) d -> d h w', h=H)
+                
+                up_src_pca_full = F.interpolate(src_pca_full.unsqueeze(0), size=interp_size, mode='bilinear', align_corners=False).squeeze()
+                up_trg_pca_full = F.interpolate(trg_pca_full.unsqueeze(0), size=interp_size, mode='bilinear', align_corners=False).squeeze()
+                
+                joint_imgs_pca_full = torch.cat([up_src_pca_full, up_trg_pca_full], dim=2)
+
+                # Load and resize original image
+                src_img = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, data['src_imname']))
+                trg_img = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, data['trg_imname']))
+                src_img = src_img.resize(interp_size)
+                trg_img = trg_img.resize(interp_size)
+                src_img_tensor = transforms.ToTensor()(src_img).cuda()
+                trg_img_tensor = transforms.ToTensor()(trg_img).cuda()
+                
+                joint_imgs = torch.cat([src_img_tensor, trg_img_tensor], dim=2)
+                
+                # Stack original images, foreground PCA and full PCA vertically
+                vis_joint = torch.cat([joint_imgs, joint_imgs_pca_full, joint_imgs_pca_fg], dim=1)
+                
+                if args.log_tool == 'wandb':
+                    # log frequency
+                    if i % args.WANDB_LOG_FREQ == 0:
+                        wandb.log({f"vis_PCA_JOINT_{cat}/pca_joint_src{data['src_imname'].split('.')[0]}_trg{data['trg_imname'].split('.')[0]}.jpg": wandb.Image(vis_joint) })
+                else:
+                    # Save visualization using torchvision
+                    save_image(vis_joint, f"{SAVE_PATH_JOINT_PCA}/pca_joint_src{data['src_imname'].split('.')[0]}_trg{data['trg_imname'].split('.')[0]}.jpg")
+
+            src_ft = nn.Upsample(size=src_img_size, mode='bilinear')(src_ft)
+            trg_ft = nn.Upsample(size=trg_img_size, mode='bilinear')(trg_ft)
+            h = trg_ft.shape[-2]
+            w = trg_ft.shape[-1]
+
+            trg_bndbox = data['trg_bndbox']
+            threshold = max(trg_bndbox[3] - trg_bndbox[1], trg_bndbox[2] - trg_bndbox[0])
+
+            total = 0
+            correct = 0
+            
+            # ======================== VISUALIZE KEYPOINTS PREDICTION ========================
+            if args.VIS_KPTS_PREDICTION:
+                
+                SAVE_PATH_KPTS = f'{args.save_dir}/kpts/{cat}'
+                if not os.path.exists(SAVE_PATH_KPTS):
+                    os.makedirs(SAVE_PATH_KPTS)
+                    
+                # Load source and target images
+                src_img = cv2.imread(os.path.join(dataset_path, 'JPEGImages', cat, data['src_imname']))
+                trg_img = cv2.imread(os.path.join(dataset_path, 'JPEGImages', cat, data['trg_imname']))
+                
+                # Get original dimensions
+                src_h, src_w = src_img.shape[:2]
+                trg_h, trg_w = trg_img.shape[:2]
+                
+                # Calculate scale factors
+                scale_x = src_w / trg_w
+                scale_y = src_h / trg_h
+                
+                # Resize target image and adjust target points for visualization only
+                trg_img = cv2.resize(trg_img, (src_w, src_h))
+                vis_trg_kpts = [[int(kp[0] * scale_x), int(kp[1] * scale_y)] for kp in data['trg_kps']]
+                
+                # Create combined visualization
+                combined_vis = np.hstack((src_img.copy(), trg_img.copy()))
+
+            for idx in range(len(data['src_kps'])):
+                total += 1
+                cat_total += 1
+                all_total += 1
+                src_point = data['src_kps'][idx]
+                trg_point = data['trg_kps'][idx]
+
+                num_channel = src_ft.size(1)
+                src_vec = src_ft[0, :, src_point[1], src_point[0]].view(1, num_channel) # 1, C
+                trg_vec = trg_ft.view(num_channel, -1).transpose(0, 1) # HW, C
+                src_vec = F.normalize(src_vec).transpose(0, 1) # c, 1
+                trg_vec = F.normalize(trg_vec) # HW, c
+                cos_map = torch.mm(trg_vec, src_vec).view(h, w).cpu().numpy() # H, W
+
+                max_yx = np.unravel_index(cos_map.argmax(), cos_map.shape)
+
+                dist = ((max_yx[1] - trg_point[0]) ** 2 + (max_yx[0] - trg_point[1]) ** 2) ** 0.5
+                if (dist / threshold) <= 0.1:
+                    correct += 1
+                    cat_correct += 1
+                    all_correct += 1
+                    
+                if args.VIS_KPTS_PREDICTION:
+                    circle_color = (255,0,0)    # BGR
+                    # Draw source keypoint
+                    src_pt = (int(src_point[0]), int(src_point[1]))
+                    cv2.circle(combined_vis, src_pt, 5, circle_color, -1)
+                    
+                    # Draw predicted target keypoint (with src_w offset)
+                    vis_pred_x = int(max_yx[1] * scale_x)
+                    vis_pred_y = int(max_yx[0] * scale_y)
+                    pred_pt = (vis_pred_x + src_w, vis_pred_y)
+                    cv2.circle(combined_vis, pred_pt, 5, circle_color, -1)
+                    
+                    # Draw line - green for correct matches, red for incorrect
+                    line_color = (0,255,0) if (dist / threshold) <= 0.1 else (0,0,255)
+                    cv2.line(combined_vis, src_pt, pred_pt, line_color, 1)
+            
+            if args.VIS_KPTS_PREDICTION: 
+                if args.log_tool == 'wandb':
+                    # log frequency
+                    if i % args.WANDB_LOG_FREQ == 0:
+                        wandb.log({f"vis_KPTS_{cat}/pred_src{data['src_imname'].split('.')[0]}_trg{data['trg_imname'].split('.')[0]}": wandb.Image(combined_vis[..., ::-1]) })
+                else:
+                    cv2.imwrite(f"{SAVE_PATH_KPTS}/pred_src{data['src_imname'].split('.')[0]}_trg{data['trg_imname'].split('.')[0]}.jpg", combined_vis)    
+            
+            cat_pck.append(correct / total)
+        
+        if args.VIS_ATTN_MAP:
+            continue
+        
+        total_pck.extend(cat_pck)
+
+        output[f'per_image_pck@0.1'][cat] = np.mean(cat_pck) * 100
+        output[f'per_point_pck@0.1'][cat] = cat_correct / cat_total * 100
+        print(f'{cat} per image PCK@0.1: {np.mean(cat_pck) * 100:.2f}')
+        print(f'{cat} per point PCK@0.1: {cat_correct / cat_total * 100:.2f}')
+        
+        if args.log_tool == 'wandb':
+            wandb.log({f'per image PCK@0.1/{cat}': output[f'per_image_pck@0.1'][cat]})
+            wandb.log({f'per point PCK@0.1/{cat}': output[f'per_point_pck@0.1'][cat]})
+        
+        # if output[f'per_image_pck@0.1']['aeroplane'] < 50.0:
+        #     print(f"BREAK!! for {args.save_dir.split('/')[-1]}, due to LOW PCK for {cat}: {output[f'per_image_pck@0.1'][cat]}")
+        #     break
+        
+        # if output[f'per_image_pck@0.1']['bicycle'] < 40.0:
+        #     print(f"BREAK!! for {args.save_dir.split('/')[-1]}, due to LOW PCK for {cat}: {output[f'per_image_pck@0.1'][cat]}")
+        #     break
+    
+        # if output[f'per_image_pck@0.1']['bird'] < 70.0:
+        #     print(f"BREAK!! for {args.save_dir.split('/')[-1]}, due to LOW PCK for {cat}: {output[f'per_image_pck@0.1'][cat]}")
+        #     break
+        
+        # if output[f'per_image_pck@0.1']['boat'] < 20.0:
+        #     print(f"BREAK!! for {args.save_dir.split('/')[-1]}, due to LOW PCK for {cat}: {output[f'per_image_pck@0.1'][cat]}")
+        #     break
+        
+        # if output[f'per_image_pck@0.1']['bottle'] < 20.0:
+        #     print(f"BREAK!! for {args.save_dir.split('/')[-1]}, due to LOW PCK for {cat}: {output[f'per_image_pck@0.1'][cat]}")
+        #     break
+        
+        # if output[f'per_image_pck@0.1']['cat'] < 70.0:
+        #     print(f"BREAK!! for {args.save_dir.split('/')[-1]}, due to LOW PCK for {cat}: {output[f'per_image_pck@0.1'][cat]}")
+        #     break
+        
+    if args.VIS_ATTN_MAP:
+        output = None
+
+    else:
+        output[f'per_image_pck@0.1']['All'] = np.mean(total_pck) * 100
+        output[f'per_point_pck@0.1']['All'] = all_correct / all_total * 100
+        print(f'All per image PCK@0.1: {np.mean(total_pck) * 100:.2f}')
+        print(f'All per point PCK@0.1: {all_correct / all_total * 100:.2f}')
+        if args.log_tool == 'wandb':
+            wandb.log({f'per image PCK@0.1/All': output['per_image_pck@0.1']['All']})
+            wandb.log({f'per point PCK@0.1/All': output['per_point_pck@0.1']['All']})
+    return output 
+
+
+def run_evaluation_semantic_joint_before(pipe, dataset_path, args):
     
     # copied code from dift 
     feat_save_path = args.feat_save_path

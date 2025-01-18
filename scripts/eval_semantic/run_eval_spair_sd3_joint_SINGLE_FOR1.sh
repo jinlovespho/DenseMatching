@@ -15,7 +15,7 @@ for stop_step in 20; do
     # Loop through different feature types
     for feat_type in mmdit_attn mmdit_attn_3_scaleshift mmdit_attn_4_norm; do
         # Loop through different layers
-        for layer in 9 10 11; do
+        for layer in 10 11; do
 
             MODEL_ARGS="
                 --model sd3_joint \

@@ -8,6 +8,44 @@ from einops import rearrange
 from torchvision import transforms
 from torchvision.utils import save_image
 import torch.nn.functional as F
+import numpy as np 
+import torch.nn as nn 
+
+
+def softmax_with_temperature(x, beta, d = 1):
+    r'''SFNet: Learning Object-aware Semantic Flow (Lee et al.)'''
+    M, _ = x.max(dim=d, keepdim=True)
+    x = x - M # subtract maximum value for stability
+    exp_x = torch.exp(x/beta)
+    exp_x_sum = exp_x.sum(dim=d, keepdim=True)
+    return exp_x / exp_x_sum
+
+
+def soft_argmax(corr, beta=0.02):
+    r'''SFNet: Learning Object-aware Semantic Flow (Lee et al.)'''
+    
+    _, _, feat_H, feat_W = corr.shape
+    
+    x_normal = np.linspace(-1,1,feat_W)
+    x_normal = nn.Parameter(torch.tensor(x_normal, dtype=torch.float, requires_grad=False))
+    y_normal = np.linspace(-1,1,feat_H)
+    y_normal = nn.Parameter(torch.tensor(y_normal, dtype=torch.float, requires_grad=False))
+    
+    b,_,h,w = corr.size()
+    corr = softmax_with_temperature(corr, beta=beta, d=1)
+    corr = corr.view(-1,h,w,h,w) # (target hxw) x (source hxw)
+
+    grid_x = corr.sum(dim=1, keepdim=False) # marginalize to x-coord.
+    x_normal = x_normal.expand(b,w)
+    x_normal = x_normal.view(b,w,1,1)
+    grid_x = (grid_x*x_normal).sum(dim=1, keepdim=True) # b x 1 x h x w
+    
+    grid_y = corr.sum(dim=2, keepdim=False) # marginalize to y-coord.
+    y_normal = y_normal.expand(b,h)
+    y_normal = y_normal.view(b,h,1,1)
+    grid_y = (grid_y*y_normal).sum(dim=1, keepdim=True) # b x 1 x h x w
+    return grid_x, grid_y
+
 
 def prepare_spair(dataset_path, args):
     

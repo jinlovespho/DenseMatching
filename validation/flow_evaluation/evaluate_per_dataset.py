@@ -26,7 +26,7 @@ from models.modules.mod import unnormalise_and_convert_mapping_to_flow
 from torchvision import transforms
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-from validation.sd3_utils import prepare_spair, extract_and_save_feats, extract_and_save_feats_joint
+from validation.sd3_utils import prepare_spair, extract_and_save_feats, extract_and_save_feats_joint, soft_argmax
 
 class FeatureL2Norm(nn.Module):
     """
@@ -1017,6 +1017,40 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                 
                 ''' extracted_feat: 24 2 2304 1536
                 '''
+            
+            # compute flow with camap (like zeroco)
+            if args.FLOW_CAMAP:
+                assert args.output_feat_type == 'attn_map'
+                
+                attn_maps12 = extracted_feat[:,0]   # src->trg: 24 2304 2304 
+                attn_maps21 = extracted_feat[:,1]   # trg->src: 24 2304 2304 
+                
+                # lets say we avg the maps 
+                attn_maps12 = attn_maps12.mean(dim=0).unsqueeze(0)   # src->trg: 1 2304 2304 
+                attn_maps21 = attn_maps21.mean(dim=0).unsqueeze(0)   # trg->src: 1 2304 2304 
+                
+                attn_maps_img = attn_maps12 
+                attn_map_direction = 'attn_src_to_trg'
+                
+                if args.CONCAT_WIDTH:
+                    orig_H = args.eval_img_size[0] // 2
+                    orig_W = args.eval_img_size[1]
+                    feat_H = orig_H // 16
+                    feat_W = orig_W // 16
+                
+                # compute map to flow 
+                beta=2e-2
+                grid_x, grid_y = soft_argmax(attn_maps_img.transpose(-1,-2).view(1, -1,feat_H, feat_W), beta=beta)      # 1 1 14 14     
+                coarse_flow = torch.cat((grid_x, grid_y), dim=1)                                                        # 1 2 14 14
+                flow_est = unnormalise_and_convert_mapping_to_flow(coarse_flow)                                         # 1 2 14 14
+
+                flow_est = F.interpolate(flow_est, size=(orig_H, orig_W), mode='bilinear', align_corners=False)         # 
+                flow_est[:,0,:,:] *= orig_W/feat_W 
+                flow_est[:,1,:,:] *= orig_H/feat_H 
+                
+                breakpoint()
+                # now i must understand how to compute the pck metric using "FLOW" instead of dense feature map NN
+                       
             
             # breakpoint()
             if args.VIS_ATTN_MAP:

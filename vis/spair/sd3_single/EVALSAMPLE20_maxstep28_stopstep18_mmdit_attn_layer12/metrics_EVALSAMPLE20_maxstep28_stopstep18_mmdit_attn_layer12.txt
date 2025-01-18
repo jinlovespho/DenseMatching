@@ -1,1 +1,0 @@
-{"EVALSAMPLE20_maxstep28_stopstep18_mmdit_attn_layer12":{"per_image_pck@0.1":{"aeroplane":43.9410311910312,"All":43.9410311910312},"per_point_pck@0.1":{"aeroplane":47.82608695652174,"All":47.82608695652174}}}

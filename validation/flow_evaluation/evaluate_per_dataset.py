@@ -974,7 +974,7 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
         if args.EVAL_SAMPLE_NUM != -1:
             cat_list = cat_list[:args.EVAL_SAMPLE_NUM]
 
-        print(f'MSG: Evaluating for category ==> {cat}')
+        print(f'Evaluating for category ==> {cat}')
         for i, json_path in enumerate(tqdm(cat_list)):
 
             with open(os.path.join(dataset_path, 'PairAnnotation/test', json_path)) as temp_f:
@@ -1017,12 +1017,13 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                 
                 ''' extracted_feat: 24 2 2304 1536
                 '''
-                
+            
+            # breakpoint()
             if args.VIS_ATTN_MAP:
                 
                 # OUTPUT FEATURE MUST BE ATTENTION MAPS! 
                 assert args.output_feat_type == 'attn_map'
-                
+
                 attn_maps12 = extracted_feat[:,0]   # src->trg: 24 2304 2304 
                 attn_maps21 = extracted_feat[:,1]   # trg->src: 24 2304 2304 
                 attn_maps11 = extracted_feat[:,2]   # src->src: 24 2304 2304 
@@ -1044,9 +1045,16 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                 else:
                     print('ERROR!!!! VIS_ATTN_MAP')
                 
+                if args.CONCAT_WIDTH:
+                    vis_h = args.eval_img_size[0] // 2
+                    vis_w = args.eval_img_size[1] 
+                else:
+                    vis_h = args.eval_img_size[0]
+                    vis_w = args.eval_img_size[1]
+                    
                 # 1. prepare images
-                img1_tensor = network.pipe.image_processor.preprocess(img1_info['img1'], args.eval_img_size[0], args.eval_img_size[1])     # 1 3 768 768
-                img2_tensor = network.pipe.image_processor.preprocess(img2_info['img2'], args.eval_img_size[0], args.eval_img_size[1])     # 1 3 768 768
+                img1_tensor = network.pipe.image_processor.preprocess(img1_info['img1'], vis_h, vis_w)     # 1 3 768 768
+                img2_tensor = network.pipe.image_processor.preprocess(img2_info['img2'], vis_h, vis_w)     # 1 3 768 768
                 
                 img1_tensor_re = (img1_tensor + 1) / 2  # [0,1]
                 img1_np = (img1_tensor_re.squeeze().permute(1,2,0).cpu().numpy() * 255.0).astype(np.uint8) # 768 768 3 
@@ -1057,19 +1065,17 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                 img2_np = np.ascontiguousarray(img2_np) # 768 768 3 
                 
                 # 2. prepare size infos
-                _, _, H, W = img1_tensor.shape 
-                img_len = attn_maps_img.shape[1]
-                ps=16       # not real patch size, but patch size for visualization
-                pH = int(img_len ** 0.5)     # num patches in height 
-                pW = int(img_len ** 0.5)     # num patches in width 
-                N = pH * pW  # total num patches
-                
+                ps=16   # not real patch size, but patch size for visualization
+                pH = vis_h // ps
+                pW = vis_w // ps
+                N = pH * pW
+
                 # 3. set vis points 
                 num_vis=30
                 vis_points = torch.rand(N).argsort()[:num_vis].tolist()
                 
                 # breakpoint()
-                vis_layers = [0, 1, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 23]
+                vis_layers = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 23]
                 for l in vis_layers: 
                     for point in vis_points:
                         
@@ -1086,7 +1092,7 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                         
                         # get l-th layer attention map with query_point
                         attn_mask = attn_maps_img[l][point].view(pH,pW)
-                        attn_mask = F.interpolate(attn_mask[None, None], size=(H, W), mode='bilinear', align_corners=False).squeeze()
+                        attn_mask = F.interpolate(attn_mask[None, None], size=(vis_h, vis_w), mode='bilinear', align_corners=False).squeeze()
                         attn_mask = (attn_mask-attn_mask.min())/(attn_mask.max()-attn_mask.min())
 
                         idx_h = point // pW 

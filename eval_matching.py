@@ -217,6 +217,7 @@ if __name__ == "__main__":
     
     parser.add_argument('--joint_full_attn', action='store_true')
     parser.add_argument('--CONCAT_WIDTH', action='store_true')
+    parser.add_argument('--ACTUALLY_SINGLE', action='store_true')
     
     parser.add_argument('--inf_max_step', type=int, default=28, help='max steps for inference')
     parser.add_argument('--inf_stop_step', type=int, default=25, help='stop step for inference')

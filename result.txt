@@ -1,0 +1,15 @@
+
+
+
+
+feat_types:   attn_map, query, key, value
+              mmdit_attn, mmdit_attn_1_scale, mmdit_attn_2_res, mmdit_attn_3_scaleshift
+              mmdit_ff, mmdit_ff_1_scale, mmdit_ff_2_res
+
+
+
+1. mmdit_attn 와 mmdit_ff 모두에서 residual 을 해준 것은 성능을 악화.
+
+2. mmdit_attn 와 mmdit_ff 모두에서 _1_scale 을 해준것도 성능 악화.
+
+3. 

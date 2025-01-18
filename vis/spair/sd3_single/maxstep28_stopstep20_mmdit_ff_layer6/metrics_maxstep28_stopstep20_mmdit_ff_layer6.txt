@@ -1,1 +1,0 @@
-{"maxstep28_stopstep20_mmdit_ff_layer6":{"per_image_pck@0.1":{"aeroplane":11.452941651235498,"All":11.452941651235498},"per_point_pck@0.1":{"aeroplane":13.740458015267176,"All":13.740458015267176}}}

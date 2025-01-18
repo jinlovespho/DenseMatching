@@ -74,7 +74,12 @@ class SD3Joint:
         self.args = args
         
         self.pipe = StableDiffusion3Pipeline.from_pretrained("stabilityai/stable-diffusion-3-medium-diffusers", torch_dtype=torch.float16)
-        self.pipe.to("cuda")
+        self.pipe = self.pipe.to("cuda")
+        
+        self.pipe.enable_model_cpu_offload()
+        # self.pipe.enable_sequential_cpu_offload()
+        # self.pipe.vae.enable_slicing()
+        # self.pipe.vae.enable_tiling()
 
     @torch.no_grad()
     def forward(self, 
@@ -132,6 +137,8 @@ class SD3Joint:
             pooled_prompt_embeds = torch.cat([negative_pooled_prompt_embeds, pooled_prompt_embeds], dim=0)    # 2 2048
         elif self.args.CONCAT_WIDTH:
             pooled_prompt_embeds = pooled_prompt_embeds
+        elif self.args.ACTUALLY_SINGLE:
+            pooled_prompt_embeds = torch.cat([pooled_prompt_embeds, pooled_prompt_embeds], dim=0)    # 2 2048
         else:
             pooled_prompt_embeds = torch.cat([pooled_prompt_embeds, pooled_prompt_embeds], dim=0)    # 2 2048
         
@@ -143,28 +150,28 @@ class SD3Joint:
         img1 = img1_info['img1']
         img1_cat = img1_info['img1_cat']
         img1_name = img1_info['img1_name']
-        img1_tensor = self.pipe.image_processor.preprocess(img1, height, width)     # 1 3 768 768
+        img1_tensor = self.pipe.image_processor.preprocess(img1, height, width).to(device=device, dtype=prompt_embeds.dtype)     # 1 3 h w 
         
-        img2_tensor = None 
-        if img2_info is not None:
-            img2 = img2_info['img2']
-            img2_cat = img2_info['img2_cat']
-            img2_name = img2_info['img2_name']
-            img2_tensor = self.pipe.image_processor.preprocess(img2, height, width)     # 1 3 768 768
+        img2 = img2_info['img2']
+        img2_cat = img2_info['img2_cat']
+        img2_name = img2_info['img2_name']
+        img2_tensor = self.pipe.image_processor.preprocess(img2, height, width).to(device=device, dtype=prompt_embeds.dtype)     # 1 3 h w 
         
+        # breakpoint()
         if self.args.CONCAT_WIDTH:
-            img1_tensor = img1_tensor.to(device=device, dtype=prompt_embeds.dtype)  # 1 3 768 768
-            img2_tensor = img2_tensor.to(device=device, dtype=prompt_embeds.dtype)
-            img_cat = torch.cat([img1_tensor, img2_tensor], dim=-2)     # must concat along height dimension for proper flattening
+            img_cat = torch.cat([img1_tensor, img2_tensor], dim=-2)     # must concat along height dimension for proper flattening # 1 3 1024 1024 
             img_cat_latents = self.pipe.vae.encode(img_cat).latent_dist.sample(generator=generator)
             img_cat_latents = img_cat_latents * self.pipe.vae.config.scaling_factor
+        
+        if self.args.ACTUALLY_SINGLE:
+            img_stack = torch.cat([img1_tensor, img2_tensor], dim=0)    # 2 3 1024 1024
+            img_stack_latents = self.pipe.vae.encode(img_stack).latent_dist.sample(generator=generator)     # 2 3 h w -> 2 16 h//8 w//8
+            img_stack_latents = img_stack_latents * self.pipe.vae.config.scaling_factor   
+
         else:
-            # JLP - prepare image latents
-            img1_tensor = img1_tensor.to(device=device, dtype=prompt_embeds.dtype)                      # 1 3 768 768
             img1_latents = self.pipe.vae.encode(img1_tensor).latent_dist.sample(generator=generator)    # 1 16 96 96 
             img1_latents = img1_latents * self.pipe.vae.config.scaling_factor                           # 1 16 96 96 
             
-            img2_tensor = img2_tensor.to(device=device, dtype=prompt_embeds.dtype)                      # 1 3 768 768   
             img2_latents = self.pipe.vae.encode(img2_tensor).latent_dist.sample(generator=generator)    # 1 16 96 96 
             img2_latents = img2_latents * self.pipe.vae.config.scaling_factor                           # 1 16 96 96 
         
@@ -218,17 +225,19 @@ class SD3Joint:
         # prepare noisy input
         t = timesteps[self.args.inf_stop_step]
         
+        # breakpoint()
         if self.args.CONCAT_WIDTH:
             img_latent_model_input = img_cat_latents
+        elif self.args.ACTUALLY_SINGLE:
+            img_latent_model_input = img_stack_latents  # 2 16 h//8 w//8
         else:
-            img_latent_model_input = torch.cat([img1_latents, img2_latents], dim=0) # 2 16 96 96 
-        noise = torch.randn_like(img_latent_model_input)    # 2 16 96 96 
+            img_latent_model_input = torch.cat([img1_latents, img2_latents], dim=0) # 2 16 128 128 
+        noise = torch.randn_like(img_latent_model_input)    # 2 16 h//8 w//8 
         timestep = t.expand(img_latent_model_input.shape[0])    # 2
-        latent_model_input = self.pipe.scheduler.scale_noise(img_latent_model_input, timestep, noise)    # 2 16 96 96 
+        latent_model_input = self.pipe.scheduler.scale_noise(img_latent_model_input, timestep, noise)    # 2 16 h//8 w//8 
 
-        # breakpoint()
         trans_out = self.pipe.transformer(
-            hidden_states=latent_model_input,           # 2 16 96 96 
+            hidden_states=latent_model_input,           # 2 16 h//8 w//8 
             timestep=timestep,                          # 2
             encoder_hidden_states=prompt_embeds,        # 1 333 4096
             pooled_projections=pooled_prompt_embeds,    # 2 2048
@@ -240,50 +249,15 @@ class SD3Joint:
         noise_pred = trans_out[0]   # 2 16 128 128
         my_outputs = trans_out[1]
         
-        attn_maps = my_outputs['attn_maps']
-        queries = my_outputs['queries']
-        keys = my_outputs['keys']
-        values = my_outputs['values']
-        mmdit_attns = my_outputs['mmdit_attns']
-        mmdit_ffs = my_outputs['mmdit_ffs']
+        for key, value in my_outputs.items():
+            if not len(my_outputs[key]) == 0:
+                assert self.args.output_feat_type == key, f'args.output_feat_type is {self.args.output_feat_type} while EXTRACTED FEAT is {key}'
+                feat = torch.stack(my_outputs[key], dim=0)
+                print(f'ARGS.OUTPUT_FEAT_TYPE: {self.args.output_feat_type}')
+                print(f'EXTRACTED FEAT:        {key}')
+                print(f'FEAT SHAPE:            {feat.shape}')
         
-        if not len(attn_maps) == 0 :
-            # print('returning attn_maps')
-            feat = torch.stack(attn_maps, dim=0)        # 24 2304 2304 (n_layer, n_img_tkn, n_img_tkn)
-            
-        elif not len(queries) == 0:
-            # print('returning queries')
-            feat = torch.stack(queries, dim=0)          # 24 2304 64 (n_layer, n_img_tkn, head_dim)
-            
-        elif not len(keys) == 0:
-            # print('returning keys')
-            feat = torch.stack(keys, dim=0)             # 24 2304 64 (n_layer, n_img_tkn, head_dim)
-            
-        elif not len(values) == 0:
-            # print('returning values')
-            feat = torch.stack(values, dim=0)           # 24 2304 64 (n_layer, n_img_tkn, head_dim)
-            
-        elif not len(mmdit_attns) == 0:
-            # print('returning mmdit_blk_attn_outputs')
-            feat = torch.stack(mmdit_attns, dim=0) # 24 2304 1536 
-            
-        elif not len(mmdit_ffs) == 0:
-            # print('returning mmdit_blk_ff_outputs')
-            feat = torch.stack(mmdit_ffs, dim=0)     # 24 2304 1536
-        
-        else:
-            raise ValueError('No feature returned')
-
-        '''
-            feat: 
-                joint_full_attn=False: 24 2304 64 
-                joint_full_attn=True: 24 2 2304 64 
-                
-            feat[return_idx:return_idx+1]:
-                joint_full_attn=False: 1 2304 64
-                joint_full_attn=True: 1 2 2304 64
-        '''
-        
+        # breakpoint()
         return feat 
             
         # perform guidance

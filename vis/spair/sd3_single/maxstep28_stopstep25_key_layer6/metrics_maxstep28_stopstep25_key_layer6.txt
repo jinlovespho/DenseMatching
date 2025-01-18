@@ -1,1 +1,0 @@
-{"maxstep28_stopstep25_key_layer6":{"per_image_pck@0.1":{"aeroplane":12.217033564068831,"All":12.217033564068831},"per_point_pck@0.1":{"aeroplane":14.812795347146492,"All":14.812795347146492}}}

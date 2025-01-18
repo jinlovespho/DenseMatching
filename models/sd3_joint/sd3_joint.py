@@ -73,6 +73,9 @@ class SD3Joint:
         
         self.args = args
         
+        # hf_token='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'
+        # os.environ['HF_TOKEN'] = hf_token
+        
         self.pipe = StableDiffusion3Pipeline.from_pretrained("stabilityai/stable-diffusion-3-medium-diffusers", torch_dtype=torch.float16)
         self.pipe = self.pipe.to("cuda")
         

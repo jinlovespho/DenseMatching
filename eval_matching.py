@@ -220,6 +220,8 @@ if __name__ == "__main__":
     parser.add_argument('--ACTUALLY_SINGLE', action='store_true')
     parser.add_argument('--FLOW_CAMAP', action='store_true')
     
+    parser.add_argument('--AVG_LAYER_FEAT', action='store_true')
+    
     parser.add_argument('--inf_max_step', type=int, default=28, help='max steps for inference')
     parser.add_argument('--inf_stop_step', type=int, default=25, help='stop step for inference')
     

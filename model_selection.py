@@ -57,15 +57,12 @@ def select_model(model_name, path_to_pre_trained_models, args):
         from models.dift.dift_sd import SDFeaturizer4Eval
         all_cats = ['aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'dog', 'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'train', 'tvmonitor']
         network = SDFeaturizer4Eval(cat_list=all_cats)
-    
-    elif model_name == 'sd3_single':
-        from models.sd3_single.sd3_single import SD3Single
-        network = SD3Single(args)
-    
-    elif model_name == 'sd3_joint':
+    # elif model_name == 'sd3_single':
+    #     from models.sd3_single.sd3_single import SD3Single
+    #     network = SD3Single(args)
+    elif model_name == 'sd3_single' or model_name == 'sd3_joint':
         from models.sd3_joint.sd3_joint import SD3Joint
         network = SD3Joint(args)      
-    
     elif model_name == 'dit_single':
         from models.dit_single.dit_single import DITSingle
         network = DITSingle(args)

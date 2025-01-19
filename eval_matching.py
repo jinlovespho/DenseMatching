@@ -114,20 +114,28 @@ def main(args, settings):
                                             path_to_save=path_to_save, plot=args.plot, plot_100=args.plot_100,
                                             plot_ind_images=args.plot_individual_images, args=args)
     elif args.dataset == 'spair':
-        if args.model == 'dift_sd' or args.model == 'sd3_single' or args.model == 'dit_single' or args.model == 'cogvid_single':
-            output = run_evaluation_semantic_dift(network=network, dataset_path=settings.env.spair, args=args)
-        elif args.model == 'sd3_joint':
-            output = run_evaluation_semantic_joint(network=network, dataset_path=settings.env.spair, args=args)
-        else:
-            test_set = datasets.SPairDataset(settings.env.spair, source_image_transform=input_transform,
-                                                target_image_transform=input_transform, split='test',
-                                                flow_transform=target_transform)
-            test_dataloader = DataLoader(test_set, batch_size=1, num_workers=0)
-            output = run_evaluation_semantic(network, test_dataloader, device,
-                                                estimate_uncertainty=estimate_uncertainty,
-                                                flipping_condition=args.flipping_condition,
-                                                path_to_save=path_to_save, plot=args.plot, plot_100=args.plot_100,
-                                                plot_ind_images=args.plot_individual_images, args=args)
+        
+        output = run_evaluation_semantic_joint(network=network, dataset_path=settings.env.spair, args=args) 
+        
+        # if args.INFERENCE_FEAT_NO_SAVE:
+        #     output = run_evaluation_semantic_joint(network=network, dataset_path=settings.env.spair, args=args) 
+        # else:
+        #     output = run_evaluation_semantic_dift(network=network, dataset_path=settings.env.spair, args=args)
+        
+        # if args.model == 'dift_sd' or args.model == 'sd3_single' or args.model == 'dit_single' or args.model == 'cogvid_single':
+        #     output = run_evaluation_semantic_dift(network=network, dataset_path=settings.env.spair, args=args)
+        # elif args.model == 'sd3_joint':
+        #     output = run_evaluation_semantic_joint(network=network, dataset_path=settings.env.spair, args=args)
+        # else:
+        #     test_set = datasets.SPairDataset(settings.env.spair, source_image_transform=input_transform,
+        #                                         target_image_transform=input_transform, split='test',
+        #                                         flow_transform=target_transform)
+        #     test_dataloader = DataLoader(test_set, batch_size=1, num_workers=0)
+        #     output = run_evaluation_semantic(network, test_dataloader, device,
+        #                                         estimate_uncertainty=estimate_uncertainty,
+        #                                         flipping_condition=args.flipping_condition,
+        #                                         path_to_save=path_to_save, plot=args.plot, plot_100=args.plot_100,
+        #                                         plot_ind_images=args.plot_individual_images, args=args)
     
     else:
         raise ValueError('Unknown dataset, {}'.format(args.dataset))
@@ -225,7 +233,7 @@ if __name__ == "__main__":
     parser.add_argument('--inf_max_step', type=int, default=28, help='max steps for inference')
     parser.add_argument('--inf_stop_step', type=int, default=25, help='stop step for inference')
     
-    parser.add_argument('--output_feat_type', type=str, default='query', help='output feature type')
+    parser.add_argument('--output_feat_type', type=str, default='', help='output feature type')
     parser.add_argument('--output_layer', type=int, default=0, help='output layer for sd3')
     
     # VIS_ARGS 
@@ -243,6 +251,8 @@ if __name__ == "__main__":
     
     # ETC_ARGS
     parser.add_argument('--EVAL_SAMPLE_NUM', type=int, default=-1, help='evaluation sample number')
+    parser.add_argument('--SPAIR_VAL_SPLIT_360', action='store_true')
+    parser.add_argument('--INFERENCE_FEAT_NO_SAVE', action='store_true')
 
     args = parser.parse_args()
 

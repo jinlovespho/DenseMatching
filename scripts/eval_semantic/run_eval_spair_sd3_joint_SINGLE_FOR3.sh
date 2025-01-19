@@ -11,11 +11,11 @@ DATA_ARGS="
 
 CUDA=3
 # Loop through different stop steps
-for stop_step in 22; do
+for stop_step in 21; do
     # Loop through different feature types
-    for feat_type in mmdit_attn mmdit_attn_3_scaleshift mmdit_attn_4_norm; do
+    for feat_type in mmdit_attn_3_scaleshift; do
         # Loop through different layers
-        for layer in 10 11; do
+        for layer in 10; do
 
             MODEL_ARGS="
                 --model sd3_joint \
@@ -34,12 +34,12 @@ for stop_step in 22; do
                 --log_tool wandb \
                 --wandb_path ./wandb \
                 --wandb_proj_name zeroshot_matching \
-                --wandb_exp_name server5_spair_sd3_joint_SINGLE_EVALSAMPLE20_maxstep28_stopstep${stop_step}_${feat_type}_layer${layer}_gpu${CUDA} \
-                --save_dir ./vis/spair/sd3_joint_SINGLE/EVALSAMPLE20_maxstep28_stopstep${stop_step}_${feat_type}_layer${layer} \
+                --wandb_exp_name server5_spair_VALSPLIT360_sd3_joint_SINGLE_maxstep28_stopstep${stop_step}_${feat_type}_layer${layer}_gpu${CUDA} \
+                --save_dir ./vis/spair/sd3_joint_SINGLE/VALSPLIT360_maxstep28_stopstep${stop_step}_${feat_type}_layer${layer} \
             "
 
             VIS_ARGS="
-                --WANDB_LOG_FREQ 4 \
+                --WANDB_LOG_FREQ 3 \
                 --VIS_PCA_JOINT_IMG \
                 --VIS_KPTS_PREDICTION \
             "
@@ -47,6 +47,7 @@ for stop_step in 22; do
             ETC_ARGS="
                 --seed 1997 \
                 --EVAL_SAMPLE_NUM 20 \
+                --SPAIR_VAL_SPLIT_360 \
             "
 
             CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py ${DATA_ARGS} ${MODEL_ARGS} ${LAYER_SELECTION_ARGS} ${LOG_ARGS} ${ETC_ARGS} ${VIS_ARGS}

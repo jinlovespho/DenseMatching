@@ -11,11 +11,11 @@ DATA_ARGS="
 
 CUDA=3
 # Loop through different stop steps
-for stop_step in 24; do
+for stop_step in 23; do
     # Loop through different feature types
-    for feat_type in mmdit_attn_4_norm; do
+    for feat_type in mmdit_attn_3_scaleshift; do
         # Loop through different layers
-        for layer in 10 9 11; do
+        for layer in 9 10; do
 
             MODEL_ARGS="
                 --model sd3_joint \

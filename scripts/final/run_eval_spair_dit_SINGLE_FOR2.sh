@@ -2,27 +2,21 @@
 
 DATA_ARGS="
     --dataset spair \
-    --eval_img_size 1024 1024 \
+    --eval_img_size 512 512 \
 "
-
-# feat_types:   attn_map, query, key, value
-#               mmdit_attn, mmdit_attn_1_scale, mmdit_attn_2_res, mmdit_attn_3_scaleshift, mmdit_attn_4_norm
-#               mmdit_ff, mmdit_ff_1_scale, mmdit_ff_2_res
-
 CUDA=2
 # Loop through different stop steps
-for stop_step in 21; do
+for stop_step in 22 20; do
     # Loop through different feature types
-    for feat_type in mmdit_attn; do
+    for feat_type in dit_attn; do
         # Loop through different layers
-        for layer in 10; do
+        for layer in 13 14 15; do
 
             MODEL_ARGS="
-                --model sd3_joint \
-                --ACTUALLY_SINGLE \
-                --inf_max_step 28 \
+                --model dit_single \
+                --inf_max_step 25 \
                 --inf_stop_step ${stop_step} \
-                --feat_save_path ./extracted_feats/spair_sd3_joint_SINGLE/maxstep28_stopstep${stop_step}_${feat_type}_layer${layer} \
+                --feat_save_path ./extracted_feats/spair_dit_single/maxstep25_stopstep${stop_step}_${feat_type}_layer${layer} \
             "
 
             LAYER_SELECTION_ARGS="
@@ -34,19 +28,19 @@ for stop_step in 21; do
                 --log_tool wandb \
                 --wandb_path ./wandb \
                 --wandb_proj_name zeroshot_matching \
-                --wandb_exp_name server5_spair_VALSPLIT360_sd3_joint_SINGLE_maxstep28_stopstep${stop_step}_${feat_type}_layer${layer}_gpu${CUDA} \
-                --save_dir ./vis/spair/sd3_joint_SINGLE/VALSPLIT360_maxstep28_stopstep${stop_step}_${feat_type}_layer${layer} \
+                --wandb_exp_name server5_spair_VALSPLIT360_dit_SINGLE_maxstep25_stopstep${stop_step}_${feat_type}_layer${layer}_gpu${CUDA} \
+                --save_dir ./vis/spair_VALSPLIT360/dit_SINGLE/maxstep25_stopstep${stop_step}_${feat_type}_layer${layer} \
             "
 
             VIS_ARGS="
-                --WANDB_LOG_FREQ 3 \
+                --WANDB_LOG_FREQ 2 \
+                --VIS_PCA_SINGLE_IMG \
                 --VIS_PCA_JOINT_IMG \
                 --VIS_KPTS_PREDICTION \
             "
 
             ETC_ARGS="
                 --seed 1997 \
-                --EVAL_SAMPLE_NUM 20 \
                 --SPAIR_VAL_SPLIT_360 \
             "
 

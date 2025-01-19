@@ -138,16 +138,17 @@ class SD3Joint:
         
         if do_classifier_free_guidance:
             pooled_prompt_embeds = torch.cat([negative_pooled_prompt_embeds, pooled_prompt_embeds], dim=0)    # 2 2048
-        elif self.args.CONCAT_WIDTH:
+        elif self.args.model == 'sd3_single':
+            pooled_prompt_embeds = torch.cat([pooled_prompt_embeds, pooled_prompt_embeds], dim=0)    # 2 2048
+        elif self.args.model == 'sd3_joint':
             pooled_prompt_embeds = pooled_prompt_embeds
-        elif self.args.ACTUALLY_SINGLE:
-            pooled_prompt_embeds = torch.cat([pooled_prompt_embeds, pooled_prompt_embeds], dim=0)    # 2 2048
-        else:
-            pooled_prompt_embeds = torch.cat([pooled_prompt_embeds, pooled_prompt_embeds], dim=0)    # 2 2048
         
-        if self.args.CONCAT_WIDTH:
+        if self.args.model == 'sd3_joint':
             height = height // 2 
             width = width 
+        else:
+            height = height
+            width = width
             
         # JLP - prepare image tensors 
         img1 = img1_info['img1']
@@ -161,12 +162,12 @@ class SD3Joint:
         img2_tensor = self.pipe.image_processor.preprocess(img2, height, width).to(device=device, dtype=prompt_embeds.dtype)     # 1 3 h w 
         
         # breakpoint()
-        if self.args.CONCAT_WIDTH:
+        if self.args.model == 'sd3_joint':
             img_cat = torch.cat([img1_tensor, img2_tensor], dim=-2)     # must concat along height dimension for proper flattening # 1 3 1024 1024 
             img_cat_latents = self.pipe.vae.encode(img_cat).latent_dist.sample(generator=generator)
             img_cat_latents = img_cat_latents * self.pipe.vae.config.scaling_factor
         
-        if self.args.ACTUALLY_SINGLE:
+        elif self.args.model == 'sd3_single':
             img_stack = torch.cat([img1_tensor, img2_tensor], dim=0)    # 2 3 1024 1024
             img_stack_latents = self.pipe.vae.encode(img_stack).latent_dist.sample(generator=generator)     # 2 3 h w -> 2 16 h//8 w//8
             img_stack_latents = img_stack_latents * self.pipe.vae.config.scaling_factor   
@@ -225,16 +226,16 @@ class SD3Joint:
                                 278.0488,  199.8270,  110.9057,    8.9286], device='cuda:0')
         '''    
         
-        # prepare noisy input
-        t = timesteps[self.args.inf_stop_step]
-        
         # breakpoint()
-        if self.args.CONCAT_WIDTH:
+        if self.args.model == 'sd3_joint':
             img_latent_model_input = img_cat_latents
-        elif self.args.ACTUALLY_SINGLE:
+        elif self.args.model == 'sd3_single':
             img_latent_model_input = img_stack_latents  # 2 16 h//8 w//8
         else:
             img_latent_model_input = torch.cat([img1_latents, img2_latents], dim=0) # 2 16 128 128 
+            
+        # prepare noisy input
+        t = timesteps[self.args.inf_stop_step]
         noise = torch.randn_like(img_latent_model_input)    # 2 16 h//8 w//8 
         timestep = t.expand(img_latent_model_input.shape[0])    # 2
         latent_model_input = self.pipe.scheduler.scale_noise(img_latent_model_input, timestep, noise)    # 2 16 h//8 w//8 

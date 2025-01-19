@@ -11,6 +11,15 @@ import torch.nn.functional as F
 import numpy as np 
 import torch.nn as nn 
 
+from validation.correspondence_utils import (
+    load_image_pair,
+    batch_cosine_sim,
+    points_to_idxs,
+    find_nn_source_correspondences,
+    draw_correspondences,
+    compute_pck,
+    rescale_points
+)
 
 def softmax_with_temperature(x, beta, d = 1):
     r'''SFNet: Learning Object-aware Semantic Flow (Lee et al.)'''
@@ -47,19 +56,48 @@ def soft_argmax(corr, beta=0.02):
     return grid_x, grid_y
 
 
-def prepare_spair(dataset_path, args):
+def prepare_spair(dataset_path, test_path,args):
+    '''
+        dataset_path='/media/dataset1/jinlovespho/github/DenseMatching/data/SPair-71k'
+    '''
     
     # copied code from dift  
     all_cats = ['aeroplane', 'bicycle', 'bird', 'boat', 'bottle', 'bus', 'car', 'cat', 'chair', 'cow', 'dog', 'horse', 'motorbike', 'person', 'pottedplant', 'sheep', 'train', 'tvmonitor']
-    test_path = 'PairAnnotation/test'
     json_list = os.listdir(os.path.join(dataset_path, test_path))
     all_cats = os.listdir(os.path.join(dataset_path, 'JPEGImages'))
     all_cats.sort()
     cat2json = {}
+    
+    # val_json_path = 'spair_71k_val-360.json'
+    # img_path = f'{dataset_path}/JPEGImages'
 
+    # with open(f'{dataset_path}/{val_json_path}') as f:
+    #     val_anns = json.load(f) 
+    #     f.close()
+    
+    # count = 0 
+    # for js in json_list:
+    #     to_del = True
+    #     file=js.split('.')[0]
+    #     src_js = file.split('-')[1]
+    #     trg_js = file.split('-')[2].split(':')[0]
+    #     cat_js = file.split('-')[2].split(':')[1] 
+    #     for val_js in val_anns:
+    #         src_val_js = val_js['source_path'].split('/')[-1].split('.')[0]
+    #         trg_val_js = val_js['target_path'].split('/')[-1].split('.')[0]
+    #         cat_val_js = val_js['category']
+    #         if src_js == src_val_js and trg_js == trg_val_js and cat_js == cat_val_js:
+    #             to_del = False
+    #             print('match', count+1)
+    #             count += 1
+    #     if to_del:
+    #         print('not match', count+1)
+    #         os.remove(f'{dataset_path}/{test_path}/{js}')
+    # print('count: ', count)    
+            
     for cat in all_cats:
         cat_list = []
-        for i in json_list:
+        for i in json_list:            
             if cat in i:
                 cat_list.append(i)
         cat2json[cat] = cat_list
@@ -79,7 +117,7 @@ def prepare_spair(dataset_path, args):
                 cat2img[cat].append(src_imname)
             if trg_imname not in cat2img[cat]:
                 cat2img[cat].append(trg_imname)
-                
+    
     return all_cats, cat2json, cat2img
 
 def minmax_norm(x):
@@ -185,17 +223,17 @@ def extract_and_save_feats(network, dataset_path, all_cats, cat2img, args):
                                                     t=args.t,
                                                     up_ft_index=args.up_ft_index,
                                                     ensemble_size=args.ensemble_size)
-            elif args.model == 'sd3_single':
-                prompt = f"a photo of a {cat}"
-                extracted_feat = network.forward(   img1_info=img1_info,
-                                                    img2_info=None,
-                                                    prompt=prompt,
-                                                    negative_prompt="",
-                                                    num_inference_steps=args.inf_max_step,
-                                                    height=args.eval_img_size[0],
-                                                    width=args.eval_img_size[1],
-                                                    guidance_scale=7.0,
-                                                    do_classifier_free_guidance=True)
+            # elif args.model == 'sd3_single':
+            #     prompt = f"a photo of a {cat}"
+            #     extracted_feat = network.forward(   img1_info=img1_info,
+            #                                         img2_info=None,
+            #                                         prompt=prompt,
+            #                                         negative_prompt="",
+            #                                         num_inference_steps=args.inf_max_step,
+            #                                         height=args.eval_img_size[0],
+            #                                         width=args.eval_img_size[1],
+            #                                         guidance_scale=7.0,
+            #                                         do_classifier_free_guidance=True)
             elif args.model == 'dit_single':
                 extracted_feat = network.forward(   img1_info=img1_info,    
                                                     img2_info=None,
@@ -231,103 +269,136 @@ def extract_and_save_feats(network, dataset_path, all_cats, cat2img, args):
         torch.save(output_dict, os.path.join(FEAT_SAVE_PATH, f'{cat}.pth'))
         print(f'MSG: saved feats for {cat}, in {FEAT_SAVE_PATH}')
 
+                         
+logging = None
+def log(s):
+    global logging
+    print(s)
+    logging.write(s+'\n')
+    logging.flush()     
+                       
+                            
+def validate(network, dataset_path, args):
 
+    val_json_path = 'spair_71k_val-360.json'
+    img_path = f'{dataset_path}/JPEGImages'
+    
+    with open(f'{dataset_path}/{val_json_path}') as f:
+        val_anns = json.load(f) 
+        f.close()
 
-def extract_and_save_feats_joint(network, dataset_path, all_cats, cat2json, cat2img, args):
-    
-    FEAT_SAVE_PATH = args.feat_save_path
-    os.makedirs(FEAT_SAVE_PATH, exist_ok=True)
-    
-    breakpoint()
-    
-    for cat in tqdm(all_cats):
-            cat_list = cat2json[cat]
+    load_size = (args.eval_img_size[0], args.eval_img_size[1])
+    plot_every_n_steps = -1
+    pck_threshold = 0.1
+    ids, val_dist, val_pck_img, val_pck_bbox = [], [], [], []
+    for j, ann in enumerate(tqdm(val_anns)):
+        with torch.no_grad():
+
+            source_points, target_points, src_path, trg_path, category = load_image_pair(ann, load_size, image_path=img_path)
             
-            output_dict = {}
-            for i, json_path in enumerate(tqdm(cat_list)):
-                with open(os.path.join(dataset_path, 'PairAnnotation/test', json_path)) as temp_f:
-                    data = json.load(temp_f)
-                
-                print('current cat: ', cat)
-                print('current json_path: ', json_path)
-                
-                src_imname = data['src_imname']
-                trg_imname = data['trg_imname']
-                
-                src_img_size = data['src_imsize'][:2][::-1]
-                trg_img_size = data['trg_imsize'][:2][::-1]
-                
-                img_src = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, src_imname))
-                img_trg = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, trg_imname))
-                
-                prompt = f"a photo of a {cat}"
-                    
-                img1_info = {
-                    'img1': img_src,
-                    'img1_cat': cat,
-                    'img1_name': src_imname.split('.')[0]
-                }
-                
-                img2_info = {
-                    'img2': img_trg,
-                    'img2_cat': cat,
-                    'img2_name': trg_imname.split('.')[0]
-                }
-                
-                breakpoint()
-                # print(f'saving attn maps for {cat} {image_path}')
-                output_dict[image_path] = pipe( img1_info=img1_info,
-                                                img2_info=img2_info,
-                                                prompt=prompt,
-                                                negative_prompt="",
-                                                num_inference_steps=28,
-                                                height=args.eval_img_size[0],
-                                                width=args.eval_img_size[1],
-                                                guidance_scale=7.0,)
-    
-
-    
-    for cat in tqdm(all_cats):
-        output_dict = {}
-        image_list = cat2img[cat]
-        
-        breakpoint()
-        for img_idx, image_path in enumerate(image_list):
-            img1 = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, image_path))
+            src_imname = f"{ann['source_path'].split('/')[-1].split('.')[0]}"
+            trg_imname = f"{ann['target_path'].split('/')[-1].split('.')[0]}"
             
+            source_size = ann["source_size"]
+            target_size = ann["target_size"]
+            
+            img_src = Image.open(f"{dataset_path}/JPEGImages/{src_path}")
+            img_trg = Image.open(f"{dataset_path}/JPEGImages/{trg_path}")
+            
+            prompt = f"a photo of a {category}"
+                
             img1_info = {
-                'img1': img1,
-                'img1_cat': cat,
-                'img1_name': image_path.split('.')[0]
-                }
+                'img1': img_src,
+                'img1_cat': category,
+                'img1_name': src_imname
+            }
             
-            if args.model == 'dift_sd':
-                extracted_feat = network.forward(   img1, # 1 1280 48 48
-                                                    category=cat,
-                                                    img_size=args.eval_img_size,
-                                                    t=args.t,
-                                                    up_ft_index=args.up_ft_index,
-                                                    ensemble_size=args.ensemble_size)
-            elif args.model == 'sd3_single':
-                prompt = f"a photo of a {cat}"
+            img2_info = {
+                'img2': img_trg,
+                'img2_cat': category,
+                'img2_name': trg_imname
+            }
+            
+            
+            if args.model == 'sd3_joint':
                 extracted_feat = network.forward(   img1_info=img1_info,
-                                                    img2_info=None,
+                                                    img2_info=img2_info,
                                                     prompt=prompt,
                                                     negative_prompt="",
                                                     num_inference_steps=args.inf_max_step,
-                                                    height=args.eval_img_size[0],
-                                                    width=args.eval_img_size[1],
+                                                    height=load_size[0],
+                                                    width=load_size[1],
                                                     guidance_scale=7.0,
-                                                    do_classifier_free_guidance=True)
-            else:
-                raise ValueError(f'Unknown model: {args.model}')
-
-            if args.VIS_PCA_SINGLE_IMG:
-                vis_pca_single_img(dataset_path, img1_info, extracted_feat, img_idx, args)
+                                                    do_classifier_free_guidance=False)
+                
+                ''' extracted_feat: 24 2 2304 1536
+                '''
             
-            # save feats per categories
-            output_dict[image_path] = extracted_feat
+            feat = extracted_feat[args.output_layer]        # 2 4096 1536
+            img1_hyperfeats = feat[0].unsqueeze(0).cuda()   # 1 4096 1536
+            img2_hyperfeats = feat[1].unsqueeze(0).cuda()   # 1 4096 1536
+            
+            if len(img1_hyperfeats.shape) == 3:
+                b,n,d = img1_hyperfeats.shape 
+                if args.CONCAT_WIDTH:
+                    h = load_size[0] // 2 // 16
+                    w = load_size[1] // 16
+                    img1_hyperfeats = rearrange(img1_hyperfeats, 'b (h w) d -> b d h w', h=h, w=w)
+                    img2_hyperfeats = rearrange(img2_hyperfeats, 'b (h w) d -> b d h w', h=h, w=w)
+                else: 
+                    h = load_size[0] // 16
+                    w = load_size[1] // 16
+                    img1_hyperfeats = rearrange(img1_hyperfeats, 'b (h w) d -> b d h w', h=h, w=w)  # 1 1536 64 64 
+                    img2_hyperfeats = rearrange(img2_hyperfeats, 'b (h w) d -> b d h w', h=h, w=w)
+            
+            output_size = img1_hyperfeats.shape[-2:]
+            
+            '''
+                img1_hyperfeats: 1 50176 128 128 = 1 d output_size[0], output_size[1]
+                img2_hyperfeats: 1 50176 128 128 = 1 d output_size[0], output_size[1]
+            '''
+            
+            # Log NN correspondences
+            _, predicted_points = find_nn_source_correspondences(img1_hyperfeats, img2_hyperfeats, source_points, output_size, load_size)
+            predicted_points = predicted_points.detach().cpu().numpy()
+            # Rescale to the original image dimensions
+            predicted_points = rescale_points(predicted_points, load_size, target_size)
+            target_points = rescale_points(target_points, load_size, target_size)
+            dist, pck_img, sample_pck_img = compute_pck(predicted_points, target_points, target_size, pck_threshold=pck_threshold)
+            _, pck_bbox, sample_pck_bbox = compute_pck(predicted_points, target_points, target_size, pck_threshold=pck_threshold, target_bounding_box=ann["target_bounding_box"])
+            val_dist.append(dist)
+            val_pck_img.append(pck_img)
+            val_pck_bbox.append(pck_bbox)
+            ids.append([j] * len(dist))
+            
+            # if plot_every_n_steps > 0 and j % plot_every_n_steps == 0:
+            if args.VIS_KPTS_PREDICTION:
+                
+                SAVE_PATH_KPTS = f'{args.save_dir}/new_kpts/{category}'
+                if not os.path.exists(SAVE_PATH_KPTS):
+                    os.makedirs(SAVE_PATH_KPTS)
+                
+                title = f"pck@{pck_threshold}_img: {sample_pck_img.round(decimals=2)}"
+                title += f"\npck@{pck_threshold}_bbox: {sample_pck_bbox.round(decimals=2)}"
+                source_points = rescale_points(source_points, load_size, source_size)
+                draw_correspondences(source_points, target_points, ann, img1_info, img2_info, title=title, radius1=1, radius2=5, save_path=SAVE_PATH_KPTS, iter=j, args=args)
+
+    breakpoint()
+    ids = np.concatenate(ids)
+    val_dist = np.concatenate(val_dist)
+    val_pck_img = np.concatenate(val_pck_img)
+    val_pck_bbox = np.concatenate(val_pck_bbox)
+    # df = pd.DataFrame({
+    #     "id": ids,
+    #     "distances": val_dist,
+    #     "pck_img": val_pck_img,
+    #     "pck_bbox": val_pck_bbox,
+    # })
+    log(f"val/pck_img: {val_pck_img.sum() / len(val_pck_img)}")
+    log(f"val/pck_bbox: {val_pck_bbox.sum() / len(val_pck_bbox)}")
+    # wandb.log({f"val/distances_csv": wandb.Table(dataframe=df)})
+    return val_pck_img.sum() / len(val_pck_img), val_pck_bbox.sum() / len(val_pck_bbox)
+
     
-        torch.save(output_dict, os.path.join(FEAT_SAVE_PATH, f'{cat}.pth'))
-        print(f'MSG: saved feats for {cat}, in {FEAT_SAVE_PATH}')
-                            
+    
+    breakpoint()

@@ -11,7 +11,7 @@ DATA_ARGS="
 
 CUDA=2
 # Loop through different stop steps
-for stop_step in 21; do
+for stop_step in 22; do
     # Loop through different feature types
     for feat_type in mmdit_attn_3_scaleshift; do
         # Loop through different layers
@@ -32,8 +32,8 @@ for stop_step in 21; do
                 --log_tool wandb \
                 --wandb_path ./wandb \
                 --wandb_proj_name zeroshot_matching \
-                --wandb_exp_name server5_spair_VALSPLIT360_sd3_JOINT_maxstep28_stopstep${stop_step}_${feat_type}_layer${layer}_gpu${CUDA} \
-                --save_dir ./vis/spair_VALSPLIT360/sd3_JOINT/maxstep28_stopstep${stop_step}_${feat_type}_layer${layer} \
+                --wandb_exp_name server5_spair_SORTED_VALSPLIT360_sd3_JOINT_maxstep28_stopstep${stop_step}_${feat_type}_layer${layer}_gpu${CUDA} \
+                --save_dir ./vis/spair_SORTED_VALSPLIT360/sd3_JOINT/maxstep28_stopstep${stop_step}_${feat_type}_layer${layer} \
             "
 
             VIS_ARGS="
@@ -45,6 +45,7 @@ for stop_step in 21; do
             ETC_ARGS="
                 --seed 1997 \
                 --SPAIR_VAL_SPLIT_360 \
+                --SORT_VAL_JSON \
                 --INFERENCE_FEAT_NO_SAVE \
             "
 

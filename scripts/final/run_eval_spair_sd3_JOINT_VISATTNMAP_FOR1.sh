@@ -7,7 +7,7 @@ DATA_ARGS="
 
 CUDA=1
 # Loop through different stop steps
-for stop_step in 21; do
+for stop_step in 22; do
     # Loop through different feature types
     for feat_type in attn_map; do
 
@@ -22,7 +22,7 @@ for stop_step in 21; do
         "
 
         LOG_ARGS="
-            --save_dir ./vis/spair_VALSPLIT360/sd3_JOINT/maxstep28_stopstep${stop_step}_${feat_type} \
+            --save_dir ./vis/spair_SORTED_VALSPLIT360/sd3_JOINT/maxstep28_stopstep${stop_step}_${feat_type} \
         "
 
         VIS_ARGS="
@@ -33,6 +33,7 @@ for stop_step in 21; do
         ETC_ARGS="
             --seed 1997 \
             --SPAIR_VAL_SPLIT_360 \
+            --SORT_VAL_JSON \
             --INFERENCE_FEAT_NO_SAVE \
         "
 

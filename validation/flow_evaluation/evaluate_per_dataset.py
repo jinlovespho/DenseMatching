@@ -965,6 +965,9 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
     for cat in all_cats:
         cat_list = cat2json[cat]
         
+        if args.SORT_VAL_JSON:
+            cat_list.sort()
+        
         # load saved feats 
         if not args.INFERENCE_FEAT_NO_SAVE:
             output_dict = torch.load(os.path.join(args.feat_save_path, f'{cat}.pth'), weights_only=True)
@@ -1132,7 +1135,11 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                 vis_points = torch.rand(N).argsort()[:num_vis].tolist()
                 
                 # breakpoint()
-                vis_layers = [0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 23]
+                if args.model == 'sd3_joint':
+                    vis_layers = [0, 2, 4, 6, 9, 10, 11, 19, 21, 23]
+                elif args.model == 'other_model':
+                    pass 
+                
                 for l in vis_layers: 
                     for point in vis_points:
                         
@@ -1177,7 +1184,10 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                         else:     
                             # Combine source and target images side by side
                             combined_img = np.concatenate([img1_np_vis, np.uint8(255*masked_img)], axis=1)
-                        cv2.imwrite(f"{vis_save_path}/src{src_name}_trg{trg_name}_point{point}.jpg", combined_img)
+                            
+                        if i % args.WANDB_LOG_FREQ == 0:
+                            # Save visualization using torchvision
+                            cv2.imwrite(f"{vis_save_path}/src{src_name}_trg{trg_name}_point{point}.jpg", combined_img)
                 continue
             
             if not args.INFERENCE_FEAT_NO_SAVE:

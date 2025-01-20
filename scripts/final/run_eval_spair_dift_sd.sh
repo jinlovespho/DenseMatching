@@ -9,8 +9,8 @@ MODEL_ARGS="
     --model dift_sd \
     --t 261 \
     --up_ft_index 1 \
-    --ensemble_size 8 \
-    --feat_save_path ./extracted_feats/spair_dift_ensemble8 \
+    --ensemble_size 1 \
+    --feat_save_path ./extracted_feats/spair_dift_ensemble1 \
 
 "
 # --feat_already_extracted 
@@ -19,8 +19,8 @@ LOG_ARGS="
     --log_tool wandb \
     --wandb_path ./wandb \
     --wandb_proj_name zeroshot_matching \
-    --wandb_exp_name server5_spair_VALSPLIT360_dift_sd_ensemble8 \
-    --save_dir ./vis/spair_VALSPLIT360/dift_sd_ensemble8 \
+    --wandb_exp_name server5_spair_SORTED_VALSPLIT360_dift_sd_ensemble1 \
+    --save_dir ./vis/spair_SORTED_VALSPLIT360/dift_sd_ensemble1 \
 "
 
 VIS_ARGS="
@@ -33,6 +33,7 @@ VIS_ARGS="
 ETC_ARGS="
     --seed 1997 \
     --SPAIR_VAL_SPLIT_360 \
+    --SORT_VAL_JSON \
 "
 
 # EVAL_SAMPLE_NUM -1 for evaluating on all samples

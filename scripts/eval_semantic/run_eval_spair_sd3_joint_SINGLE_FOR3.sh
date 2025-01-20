@@ -11,7 +11,7 @@ DATA_ARGS="
 
 CUDA=3
 # Loop through different stop steps
-for stop_step in 21; do
+for stop_step in 22; do
     # Loop through different feature types
     for feat_type in mmdit_attn_3_scaleshift; do
         # Loop through different layers

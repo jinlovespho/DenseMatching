@@ -252,8 +252,9 @@ if __name__ == "__main__":
     # ETC_ARGS
     parser.add_argument('--EVAL_SAMPLE_NUM', type=int, default=-1, help='evaluation sample number')
     parser.add_argument('--SPAIR_VAL_SPLIT_360', action='store_true')
+    parser.add_argument('--SORT_VAL_JSON', action='store_true')
     parser.add_argument('--INFERENCE_FEAT_NO_SAVE', action='store_true')
-
+    
     args = parser.parse_args()
 
     torch.cuda.empty_cache()

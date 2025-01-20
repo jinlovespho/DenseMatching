@@ -10,7 +10,7 @@ for stop_step in 23; do
     # Loop through different feature types
     for feat_type in dit_attn; do
         # Loop through different layers
-        for layer in 13 14 15; do
+        for layer in 12; do
 
             MODEL_ARGS="
                 --model dit_single \
@@ -28,8 +28,8 @@ for stop_step in 23; do
                 --log_tool wandb \
                 --wandb_path ./wandb \
                 --wandb_proj_name zeroshot_matching \
-                --wandb_exp_name server5_spair_VALSPLIT360_dit_SINGLE_maxstep25_stopstep${stop_step}_${feat_type}_layer${layer}_gpu${CUDA} \
-                --save_dir ./vis/spair_VALSPLIT360/dit_SINGLE/maxstep25_stopstep${stop_step}_${feat_type}_layer${layer} \
+                --wandb_exp_name server5_spair_SORTED_VALSPLIT360_dit_SINGLE_maxstep25_stopstep${stop_step}_${feat_type}_layer${layer}_gpu${CUDA} \
+                --save_dir ./vis/spair_SORTED_VALSPLIT360/dit_SINGLE/maxstep25_stopstep${stop_step}_${feat_type}_layer${layer} \
             "
 
             VIS_ARGS="
@@ -41,6 +41,7 @@ for stop_step in 23; do
 
             ETC_ARGS="
                 --seed 1997 \
+                --SORT_VAL_JSON \
                 --SPAIR_VAL_SPLIT_360 \
             "
 

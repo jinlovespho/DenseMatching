@@ -28,8 +28,8 @@ for stop_step in 23; do
                 --log_tool wandb \
                 --wandb_path ./wandb \
                 --wandb_proj_name zeroshot_matching \
-                --wandb_exp_name server5_spair_VALSPLIT360_cogvid_SINGLE_maxstep25_stopstep${stop_step}_${feat_type}_layer${layer}_gpu${CUDA} \
-                --save_dir ./vis/spair_VALSPLIT360/cogvid_SINGLE/maxstep25_stopstep${stop_step}_${feat_type}_layer${layer} \
+                --wandb_exp_name server5_spair_SORTED_VALSPLIT360_cogvid_SINGLE_maxstep25_stopstep${stop_step}_${feat_type}_layer${layer}_gpu${CUDA} \
+                --save_dir ./vis/spair_SORTED_VALSPLIT360/cogvid_SINGLE/maxstep25_stopstep${stop_step}_${feat_type}_layer${layer} \
             "
 
             VIS_ARGS="
@@ -42,6 +42,7 @@ for stop_step in 23; do
             ETC_ARGS="
                 --seed 1997 \
                 --SPAIR_VAL_SPLIT_360 \
+                --SORT_VAL_JSON \
                 --INFERENCE_FEAT_NO_SAVE \
             "
 

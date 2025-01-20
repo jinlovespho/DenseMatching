@@ -5,9 +5,9 @@ DATA_ARGS="
     --eval_img_size 1024 1024 \
 "
 
-CUDA=3
+CUDA=0
 # Loop through different stop steps
-for stop_step in 22; do
+for stop_step in 18 20 22 24; do
     # Loop through different feature types
     for feat_type in attn_map; do
 

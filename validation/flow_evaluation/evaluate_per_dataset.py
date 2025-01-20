@@ -1130,64 +1130,118 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                 pW = vis_w // ps
                 N = pH * pW
 
-                # 3. set vis points 
-                num_vis=30
-                vis_points = torch.rand(N).argsort()[:num_vis].tolist()
+                # 3. set scaling ratio for kpt relocation and visualization
+                x_scale_src = vis_w / src_img_size[1]
+                y_scale_src = vis_h / src_img_size[0]
                 
-                # breakpoint()
+                x_scale_trg = vis_w / trg_img_size[1]
+                y_scale_trg = vis_h / trg_img_size[0]
+                
+                scaled_kpts_src = []
+                scaled_kpts_trg = []
+                
+                # data['src_imsize'] = (500, 334, 3) = (W, H, C) 
+                # data['src_kps'] = [ [x1,y1], [x2,y2], . . . ]
+                for idx in range(len(data['src_kps'])):
+                    src_kpt = data['src_kps'][idx]
+                    trg_kpt = data['trg_kps'][idx]
+                    
+                    scaled_x_coord_src = int(src_kpt[0]*x_scale_src)
+                    scaled_y_coord_src = int(src_kpt[1]*y_scale_src)
+                    
+                    scaled_x_coord_trg = int(trg_kpt[0]*x_scale_trg)
+                    scaled_y_coord_trg = int(trg_kpt[1]*y_scale_trg)
+                    
+                    scaled_kpts_src.append((scaled_x_coord_src, scaled_y_coord_src))
+                    scaled_kpts_trg.append((scaled_x_coord_trg, scaled_y_coord_trg))
+                
+                vis_points_src = []
+                # 4. visualize only the cross-attention map of given source keypoints
+                for src_kpt in scaled_kpts_src:
+                    tkn_idx_src = src_kpt[0] // ps + src_kpt[1] // ps * pW
+                    vis_points_src.append(tkn_idx_src)
+                
+                vis_points_trg = []
+                for trg_kpt in scaled_kpts_trg:
+                    tkn_idx_trg = trg_kpt[0] // ps + trg_kpt[1] // ps * pW
+                    vis_points_trg.append(tkn_idx_trg)
+                    
+                #     cv2.circle(img1_np, (scaled_x_coord, scaled_y_coord), 5, (255,0,0), -1)     # RGB
+                #     cv2.circle(img1_np, (scaled_x_coord, scaled_y_coord), 5, (255,255,255), 2)
+                    
+                # cv2.imwrite('./img1_kpt.jpg', img1_np[...,::-1])
+                      
                 if args.model == 'sd3_joint':
                     vis_layers = [0, 2, 4, 6, 9, 10, 11, 19, 21, 23]
                 elif args.model == 'other_model':
                     pass 
                 
+                if args.VIS_ATTN_SRC_TO_TRG or args.VIS_ATTN_SRC_TO_SRC: 
+                    vis_points1 = vis_points_src 
+                    vis_points2 = scaled_kpts_trg
+                     
+                elif args.VIS_ATTN_TRG_TO_SRC or args.VIS_ATTN_TRG_TO_TRG:
+                    vis_points1 = vis_points_trg 
+                    vis_points2 = scaled_kpts_src
+                    img1_np, img2_np = img2_np, img1_np 
+                
                 for l in vis_layers: 
-                    for point in vis_points:
+                    for j in range(len(vis_points1)):
+                        
+                        src_point = vis_points1[j]
+                        trg_point = vis_points2[j]
                         
                         src_name = img1_info['img1_name']
                         trg_name = img2_info['img2_name']
-                        
-                        vis_save_path = f"{args.save_dir}/{attn_map_direction}/{img1_info['img1_cat']}/src{src_name}_trg{trg_name}/layer{l}"                        
-                        # set save path 
-                        if not os.path.exists(vis_save_path):
-                            os.makedirs(vis_save_path)
                         
                         img1_np_vis = img1_np.copy()
                         img2_np_vis = img2_np.copy()
                         
                         # get l-th layer attention map with query_point
-                        attn_mask = attn_maps_img[l][point].view(pH,pW)
+                        attn_mask = attn_maps_img[l][src_point].view(pH,pW)
                         attn_mask = F.interpolate(attn_mask[None, None], size=(vis_h, vis_w), mode='bilinear', align_corners=False).squeeze()
                         attn_mask = (attn_mask-attn_mask.min())/(attn_mask.max()-attn_mask.min())
 
-                        idx_h = point // pW 
-                        idx_w = point % pW 
+                        idx_h = src_point // pW 
+                        idx_w = src_point % pW 
                         
                         # Draw the query point as a circle
                         center = (idx_w*ps, idx_h*ps)
                         cv2.circle(img1_np_vis, center, ps//2, (255,0,0), -1)       # BGR
                         cv2.circle(img1_np_vis, center, ps//2, (255,255,255), 2)
                         
+                        if args.VIS_ATTN_SRC_TO_TRG or args.VIS_ATTN_TRG_TO_SRC:
+                            # plot the real gt target point
+                            trg_center = (int(trg_point[0]), int(trg_point[1]))
+                            cv2.circle(img2_np_vis, trg_center, ps//2, (255,0,0), -1)       # BGR
+                            cv2.circle(img2_np_vis, trg_center, ps//2, (255,255,255), 2)
+                            
                         img1_np_vis = img1_np_vis[...,::-1] 
                         img2_np_vis = img2_np_vis[...,::-1]
                         
                         attn_heatmap = cv2.applyColorMap(np.uint8(255*attn_mask), cv2.COLORMAP_JET)
                         
-                        if args.VIS_ATTN_SRC_TO_SRC:
+                        if args.VIS_ATTN_SRC_TO_SRC or args.VIS_ATTN_TRG_TO_TRG:
                             img2_tmp = img2_np_vis.copy()
                             img2_np_vis = img1_np_vis
                         
                         masked_img = img2_np_vis/255. + attn_heatmap/255.
                         masked_img = masked_img / masked_img.max()
-                        
-                        if args.VIS_ATTN_SRC_TO_SRC:
+    
+                        if args.VIS_ATTN_SRC_TO_SRC or args.VIS_ATTN_TRG_TO_TRG:
                             combined_img = np.concatenate([img1_np_vis, np.uint8(255*masked_img), img2_tmp], axis=1)
                         else:     
                             # Combine source and target images side by side
                             combined_img = np.concatenate([img1_np_vis, np.uint8(255*masked_img)], axis=1)
                             
                         if i % args.WANDB_LOG_FREQ == 0:
+                            VIS_SAVE_PATH = f"{args.save_dir}/{attn_map_direction}/{img1_info['img1_cat']}/src{src_name}_trg{trg_name}/layer{l}"                        
+                            # set save path 
+                            if not os.path.exists(VIS_SAVE_PATH):
+                                os.makedirs(VIS_SAVE_PATH)
+                                
                             # Save visualization using torchvision
-                            cv2.imwrite(f"{vis_save_path}/src{src_name}_trg{trg_name}_point{point}.jpg", combined_img)
+                            cv2.imwrite(f"{VIS_SAVE_PATH}/src{src_name}_trg{trg_name}_point{src_point}.jpg", combined_img)         
                 continue
             
             if not args.INFERENCE_FEAT_NO_SAVE:

@@ -5,7 +5,7 @@ DATA_ARGS="
     --eval_img_size 1024 1024 \
 "
 
-CUDA=2
+CUDA=3
 # Loop through different stop steps
 for stop_step in 18 20 22 24; do
     # Loop through different feature types
@@ -26,6 +26,7 @@ for stop_step in 18 20 22 24; do
         "
 
         VIS_ARGS="
+            --WANDB_LOG_FREQ 2 \
             --VIS_ATTN_MAP \
             --VIS_ATTN_TRG_TO_TRG \
         "

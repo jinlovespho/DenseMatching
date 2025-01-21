@@ -161,7 +161,6 @@ class SD3Joint:
         img2_name = img2_info['img2_name']
         img2_tensor = self.pipe.image_processor.preprocess(img2, height, width).to(device=device, dtype=prompt_embeds.dtype)     # 1 3 h w 
         
-        # breakpoint()
         if self.args.model == 'sd3_joint':
             img_cat = torch.cat([img1_tensor, img2_tensor], dim=-2)     # must concat along height dimension for proper flattening # 1 3 1024 1024 
             img_cat_latents = self.pipe.vae.encode(img_cat).latent_dist.sample(generator=generator)

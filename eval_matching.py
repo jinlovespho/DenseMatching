@@ -232,6 +232,7 @@ if __name__ == "__main__":
     
     parser.add_argument('--inf_max_step', type=int, default=28, help='max steps for inference')
     parser.add_argument('--inf_stop_step', type=int, default=25, help='stop step for inference')
+    parser.add_argument('--inf_step_count', type=int, default=-1, help='step count for inference')
     
     parser.add_argument('--output_feat_type', type=str, default='', help='output feature type')
     parser.add_argument('--output_layer', type=int, default=0, help='output layer for sd3')
@@ -248,12 +249,15 @@ if __name__ == "__main__":
     parser.add_argument('--VIS_ATTN_TRG_TO_SRC', action='store_true')
     parser.add_argument('--VIS_ATTN_SRC_TO_SRC', action='store_true')
     parser.add_argument('--VIS_ATTN_TRG_TO_TRG', action='store_true')
+    parser.add_argument('--VIS_ATTN_PROMPT', action='store_true')
     
     # ETC_ARGS
     parser.add_argument('--EVAL_SAMPLE_NUM', type=int, default=-1, help='evaluation sample number')
     parser.add_argument('--SPAIR_VAL_SPLIT_360', action='store_true')
     parser.add_argument('--SORT_VAL_JSON', action='store_true')
     parser.add_argument('--INFERENCE_FEAT_NO_SAVE', action='store_true')
+    parser.add_argument('--DO_CFG', action='store_true')
+    parser.add_argument('--MSK_ATTN', type=int, default=-1, help='mask attention')
     
     args = parser.parse_args()
 

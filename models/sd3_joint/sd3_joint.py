@@ -227,95 +227,86 @@ class SD3Joint:
         
         # breakpoint()
         if self.args.model == 'sd3_joint':
-            img_latent_model_input = img_cat_latents
+            img_latent_model_input = img_cat_latents    # 1 16 h//8 w//8
         elif self.args.model == 'sd3_single':
             img_latent_model_input = img_stack_latents  # 2 16 h//8 w//8
         else:
-            img_latent_model_input = torch.cat([img1_latents, img2_latents], dim=0) # 2 16 128 128 
-            
+            img_latent_model_input = torch.cat([img1_latents, img2_latents], dim=0)
+        
         # prepare noisy input
         t = timesteps[self.args.inf_stop_step]
-        noise = torch.randn_like(img_latent_model_input)    # 2 16 h//8 w//8 
-        timestep = t.expand(img_latent_model_input.shape[0])    # 2
-        latent_model_input = self.pipe.scheduler.scale_noise(img_latent_model_input, timestep, noise)    # 2 16 h//8 w//8 
-
-        trans_out = self.pipe.transformer(
-            hidden_states=latent_model_input,           # 2 16 h//8 w//8 
-            timestep=timestep,                          # 2
-            encoder_hidden_states=prompt_embeds,        # 1 333 4096
-            pooled_projections=pooled_prompt_embeds,    # 2 2048
-            joint_attention_kwargs=None,
-            return_dict=False,
-            args=self.args,
-        )
-
-        noise_pred = trans_out[0]   # 2 16 128 128
-        my_outputs = trans_out[1]
+        noise = torch.randn_like(img_latent_model_input)    # 1 16 h//8 w//8 
+        timestep = t.expand(img_latent_model_input.shape[0])    # 1
+        latent_model_input = self.pipe.scheduler.scale_noise(img_latent_model_input, timestep, noise)    # 1 16 h//8 w//8 
         
-        for key, value in my_outputs.items():
-            if not len(my_outputs[key]) == 0:
-                assert self.args.output_feat_type == key, f'args.output_feat_type is {self.args.output_feat_type} while EXTRACTED FEAT is {key}'
-                feat = torch.stack(my_outputs[key], dim=0)
-                print(f'ARGS.OUTPUT_FEAT_TYPE: {self.args.output_feat_type}')
-                print(f'EXTRACTED FEAT:        {key}')
-                print(f'FEAT SHAPE:            {feat.shape}')
-        
-        # breakpoint()
-        return feat 
+        # ADDED
+        timesteps = timesteps[self.args.inf_stop_step:]
+        if self.args.inf_step_count == -1:
+            STOP_COUNT = len(timesteps)
+        else:
+            STOP_COUNT = self.args.inf_step_count
             
-        # perform guidance
-        if self.do_classifier_free_guidance:    # t
-            noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
-            noise_pred = noise_pred_uncond + self.guidance_scale * (noise_pred_text - noise_pred_uncond)    # 1 16 128 128
-            should_skip_layers = (
-                True
-                if i > num_inference_steps * skip_layer_guidance_start
-                and i < num_inference_steps * skip_layer_guidance_stop
-                else False
-            )
-            print('should_skip_layers', should_skip_layers)
-            if skip_guidance_layers is not None and should_skip_layers: # f
-                print('skip_guidance_layers')
-                timestep = t.expand(latents.shape[0])
-                latent_model_input = latents
-                noise_pred_skip_layers = self.transformer(
-                    hidden_states=latent_model_input,
-                    timestep=timestep,
-                    encoder_hidden_states=original_prompt_embeds,
-                    pooled_projections=original_pooled_prompt_embeds,
-                    joint_attention_kwargs=self.joint_attention_kwargs,
+        latents = latent_model_input    # 1 16 h//8 w//8 
+        with self.pipe.progress_bar(total=num_inference_steps) as progress_bar:
+            for i, t in enumerate(timesteps):
+                
+                print('Current timestep t: ', t.item())
+                # expand the latents if we are doing classifier free guidance
+                latent_model_input = torch.cat([latents] * 2) if do_classifier_free_guidance else latents   # 1 16 h//8 w//8 
+                # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
+                timestep = t.expand(latent_model_input.shape[0])
+
+                trans_out = self.pipe.transformer(
+                    hidden_states=latent_model_input,           # 1 16 h//8 w//8 
+                    timestep=timestep,                          # 1
+                    encoder_hidden_states=prompt_embeds,        # 1 333 4096
+                    pooled_projections=pooled_prompt_embeds,    # 1 2048
+                    joint_attention_kwargs=None,
                     return_dict=False,
-                    skip_layers=skip_guidance_layers,
-                )[0]
-                noise_pred = (
-                    noise_pred + (noise_pred_text - noise_pred_skip_layers) * self._skip_layer_guidance_scale
+                    args=self.args,
                 )
+                
+                noise_pred = trans_out[0]   # 1 16 128 128
+                my_outputs = trans_out[1]
+                
+                # trans_out = self.pipe.transformer(
+                #     hidden_states=latent_model_input,           # 2 16 h//8 w//8 
+                #     timestep=timestep,                          # 2
+                #     encoder_hidden_states=prompt_embeds,        # 1 333 4096
+                #     pooled_projections=pooled_prompt_embeds,    # 2 2048
+                #     joint_attention_kwargs=None,
+                #     return_dict=False,
+                #     args=self.args,
+                # )
 
-        # compute the previous noisy sample x_t -> x_t-1
-        latents_dtype = latents.dtype
-        latents = self.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+                if i+1 == STOP_COUNT:
+                    for key, value in my_outputs.items():
+                        if not len(my_outputs[key]) == 0:
+                            assert self.args.output_feat_type == key, f'args.output_feat_type is {self.args.output_feat_type} while EXTRACTED FEAT is {key}'
+                            feat = torch.stack(my_outputs[key], dim=0)
+                            print(f'ARGS.OUTPUT_FEAT_TYPE: {self.args.output_feat_type}')
+                            print(f'EXTRACTED FEAT:        {key}')
+                            print(f'FEAT SHAPE:            {feat.shape}')
+                    
+                    return feat
+            
+                # perform guidance
+                if do_classifier_free_guidance:    # t
+                    noise_pred_uncond, noise_pred_text = noise_pred.chunk(2)
+                    noise_pred = noise_pred_uncond + guidance_scale * (noise_pred_text - noise_pred_uncond)    # 1 16 128 128
+                    should_skip_layers = (
+                        True
+                        if i > num_inference_steps * skip_layer_guidance_start
+                        and i < num_inference_steps * skip_layer_guidance_stop
+                        else False
+                    )
+                    print('should_skip_layers', should_skip_layers)
 
-        if latents.dtype != latents_dtype:
-            if torch.backends.mps.is_available():
-                # some platforms (eg. apple mps) misbehave due to a pytorch bug: https://github.com/pytorch/pytorch/pull/99272
-                latents = latents.to(latents_dtype)
+                # compute the previous noisy sample x_t -> x_t-1
+                latents_dtype = latents.dtype
+                latents = self.pipe.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
 
-        if callback_on_step_end is not None:
-            callback_kwargs = {}
-            for k in callback_on_step_end_tensor_inputs:
-                callback_kwargs[k] = locals()[k]
-            callback_outputs = callback_on_step_end(self, i, t, callback_kwargs)
-
-            latents = callback_outputs.pop("latents", latents)
-            prompt_embeds = callback_outputs.pop("prompt_embeds", prompt_embeds)
-            negative_prompt_embeds = callback_outputs.pop("negative_prompt_embeds", negative_prompt_embeds)
-            negative_pooled_prompt_embeds = callback_outputs.pop(
-                "negative_pooled_prompt_embeds", negative_pooled_prompt_embeds
-            )
-
-        # call the callback, if provided
-        if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
-            progress_bar.update()
-
-        if XLA_AVAILABLE:
-            xm.mark_step()
+                if latents.dtype != latents_dtype:
+                    if torch.backends.mps.is_available():
+                        # some platforms (eg. apple mps) misbehave due to a pytorch bug: https://github.com/pytorch/pytorch/pull/99272
+                        latents = latents.to(latents_dtype)

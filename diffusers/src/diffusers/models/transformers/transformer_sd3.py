@@ -486,7 +486,7 @@ class SD3Transformer2DModel(
                 interval_control = len(self.transformer_blocks) / len(block_controlnet_hidden_states)
                 hidden_states = hidden_states + block_controlnet_hidden_states[int(index_block / interval_control)]
 
-        return (None, my_outputs)
+        # return (None, my_outputs)
         
         hidden_states = self.norm_out(hidden_states, temb)  # 2 2304 1536
         hidden_states = self.proj_out(hidden_states)        # 2 2304 64 

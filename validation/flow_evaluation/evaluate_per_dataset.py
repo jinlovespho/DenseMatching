@@ -635,6 +635,7 @@ def print_exp_info(args):
         
     else:  
         print(f'INF_STOP_STEP: {args.inf_stop_step}/{args.inf_max_step}')
+        print(f'INF_STEP_COUNT: {args.inf_step_count}')
         print(f'CURRENT TIMESTEP: {timesteps[args.inf_stop_step]}')
         print(f'OUTPUT FEATURE TYPE: {args.output_feat_type}')
         print(f'OUTPUT LAYER: {args.output_layer}')
@@ -998,7 +999,14 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
             img_src = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, src_imname))
             img_trg = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, trg_imname))
             
-            prompt = f"a photo of a {cat}"
+            # prompt: A photo of a {cat}
+            # prompt1: A photo containing two {cat}s
+            # prompt2: A high-quality photo containing two {cat}s
+            # prompt3: ""
+            # prompt4: A photo of {cat}s
+            # prompt5: A photo of two {cat}s
+            
+            prompt = f"A photo containing two {cat}s"
                 
             img1_info = {
                 'img1': img_src,
@@ -1011,11 +1019,11 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                 'img2_cat': cat,
                 'img2_name': trg_imname.split('.')[0]
             }
-            
-            if args.VIS_ATTN_MAP and i % args.WANDB_LOG_FREQ == 0:  # for attn map visualization only forward pass the imgs to be visualized
+
+            # evaluate without saving feats
+            if args.INFERENCE_FEAT_NO_SAVE:
                 
-                # evaluate without saving feats
-                if args.INFERENCE_FEAT_NO_SAVE:
+                if args.VIS_ATTN_MAP and i % args.WANDB_LOG_FREQ == 0:  # for attn map visualization only forward pass the imgs to be visualized
                     
                     if args.model == 'sd3_single' or args.model == 'sd3_joint':
                         extracted_feat = network.forward(   img1_info=img1_info,
@@ -1026,7 +1034,7 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                                                             height=args.eval_img_size[0],
                                                             width=args.eval_img_size[1],
                                                             guidance_scale=7.0,
-                                                            do_classifier_free_guidance=False)
+                                                            do_classifier_free_guidance=args.DO_CFG)
                     
                     elif args.model == 'cogvid_single':
                         extracted_feat = network.forward(   img1_info=img1_info,
@@ -1045,7 +1053,43 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                         
                     elif args.model == 'another_model':
                         pass
-            
+                
+                
+                elif not args.VIS_ATTN_MAP:
+                    
+                    if args.model == 'sd3_single' or args.model == 'sd3_joint':
+                        extracted_feat = network.forward(   img1_info=img1_info,
+                                                            img2_info=img2_info,
+                                                            prompt=prompt,
+                                                            negative_prompt="",
+                                                            num_inference_steps=args.inf_max_step,
+                                                            height=args.eval_img_size[0],
+                                                            width=args.eval_img_size[1],
+                                                            guidance_scale=7.0,
+                                                            do_classifier_free_guidance=args.DO_CFG)
+                    
+                    elif args.model == 'cogvid_single':
+                        extracted_feat = network.forward(   img1_info=img1_info,
+                                                            img2_info=img2_info,
+                                                            num_frames=2,
+                                                            prompt=prompt,
+                                                            negative_prompt="",
+                                                            num_inference_steps=args.inf_max_step,
+                                                            height=args.eval_img_size[0],
+                                                            width=args.eval_img_size[1],
+                                                            guidance_scale=7.0,
+                                                            do_classifier_free_guidance=True)
+                        
+                        ''' extracted_feat: 24 2 2304 1536
+                        '''
+                        
+                    elif args.model == 'another_model':
+                        pass
+                
+                else:
+                    print('ERROR! ')
+                        
+                
             # compute flow with camap (like zeroco)
             if args.FLOW_CAMAP:
                 assert args.output_feat_type == 'attn_map'
@@ -1080,7 +1124,6 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                 
                 breakpoint()
                 # now i must understand how to compute the pck metric using "FLOW" instead of dense feature map NN
-                       
             
             # breakpoint()
             if args.VIS_ATTN_MAP:

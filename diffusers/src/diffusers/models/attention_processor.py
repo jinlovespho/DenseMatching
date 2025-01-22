@@ -1471,14 +1471,20 @@ class JointAttnProcessor2_0:
             key = rearrange(key, 'b h n d -> 1 h (b n) d')          
             value = rearrange(value, 'b h n d -> 1 h (b n) d')    
         
-        # JLP - manual attention computation
-        attn_scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(head_dim)  # 1 24 5274 5274
-        attn_scores = F.softmax(attn_scores, dim=-1)                                    # 1 24 5274 5274
-        
         # JLP - extract features from mmdit block 
         EXTRACT_FEAT = None
         img_len = hidden_states.shape[1]            # 2304
         text_len = encoder_hidden_states.shape[1]   # 333
+        
+        # JLP - manual attention computation
+        attn_scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(head_dim)  # 1 24 4429 4429
+        attn_scores = F.softmax(attn_scores, dim=-1)                                    # 1 24 5274 5274
+        
+        # MASK ATTENTION MAP
+        if my_args.MSK_ATTN == -1:  # no mask
+            pass
+        elif my_args.MSK_ATTN == 0: # mask the text tokens
+            attn_scores[:,:, :img_len, img_len:] =0
         
         # breakpoint()
         if my_args.output_feat_type == 'attn_map':
@@ -1493,12 +1499,30 @@ class JointAttnProcessor2_0:
                 attn_map22 = attn_map[img_len+text_len:img_len+text_len+img_len, img_len+text_len:img_len+text_len+img_len]
                 EXTRACT_FEAT = torch.stack([attn_map12, attn_map21, attn_map11, attn_map22], dim=0)  # 2 2304 2304 
             elif my_args.model == 'sd3_joint': 
-                img_attn_map = attn_map[:img_len, :img_len]                             # 4096 4096
-                img_attn_map12 = img_attn_map[:img_len//2, img_len//2:img_len]          # [0:2048, 2048:4096]   shape: (2048, 2048)
-                img_attn_map21 = img_attn_map[img_len//2:img_len, :img_len//2]          # [2048:4096, 0:2048]  
-                img_attn_map11 = img_attn_map[:img_len//2, :img_len//2]                 # [0:2048, 0:2048]
-                img_attn_map22 = img_attn_map[img_len//2:img_len, img_len//2:img_len]   # [2048:4096, 2048:4096]
-                EXTRACT_FEAT = torch.stack([img_attn_map12, img_attn_map21, img_attn_map11, img_attn_map22], dim=0)   # 4 2048 2048
+                
+                if not my_args.VIS_ATTN_PROMPT:
+                    img_attn_map = attn_map[:img_len, :img_len]                             # 4096 4096
+                    img_attn_map12 = img_attn_map[:img_len//2, img_len//2:img_len]          # [0:2048, 2048:4096]   shape: (2048, 2048)
+                    img_attn_map21 = img_attn_map[img_len//2:img_len, :img_len//2]          # [2048:4096, 0:2048]  
+                    img_attn_map11 = img_attn_map[:img_len//2, :img_len//2]                 # [0:2048, 0:2048]
+                    img_attn_map22 = img_attn_map[img_len//2:img_len, img_len//2:img_len]   # [2048:4096, 2048:4096]
+                    EXTRACT_FEAT = torch.stack([img_attn_map12, img_attn_map21, img_attn_map11, img_attn_map22], dim=0)   # 4 2048 2048
+                else:
+                    from torchvision.utils import save_image 
+                    
+                    for i in range(attn_map.shape[0]): 
+                        # tkn 4429
+                        tmp=(attn_map[i]-attn_map[i].min())/(attn_map[i].max()-attn_map[i].min())
+                        attn_map[i] = tmp
+                    save_image(attn_map, 'map_msk.png')
+                    
+                    down_map = F.interpolate(attn_map[None,None], size=(attn_map.shape[0]//16, attn_map.shape[1]//16), mode='bilinear', align_corners=False)
+                    for i in range(down_map.shape[0]): 
+                        # tkn 4429
+                        tmp=(down_map[i]-down_map[i].min())/(down_map[i].max()-down_map[i].min())
+                        down_map[i] = tmp
+                    save_image(down_map, 'map_down_msk.png')
+                    breakpoint()
             else: 
                 EXTRACT_FEAT = attn_map[:img_len, :img_len]    # 2304 2304       
         

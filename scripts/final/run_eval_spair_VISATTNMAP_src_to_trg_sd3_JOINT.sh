@@ -7,7 +7,7 @@ DATA_ARGS="
 
 CUDA=1
 # Loop through different stop steps
-for stop_step in 20; do
+for stop_step in 24; do
     # Loop through different feature types
     for feat_type in attn_map; do
 
@@ -15,6 +15,7 @@ for stop_step in 20; do
             --model sd3_joint \
             --inf_max_step 28 \
             --inf_stop_step ${stop_step} \
+            --inf_step_count 1 \
         "
 
         LAYER_SELECTION_ARGS="

@@ -1100,8 +1100,24 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                 attn_maps21 = extracted_feat[:,1]   # trg->src: 24 2304 2304 
                 
                 # lets say we avg the maps 
-                attn_maps12 = attn_maps12.mean(dim=0).unsqueeze(0)   # src->trg: 1 2304 2304 
-                attn_maps21 = attn_maps21.mean(dim=0).unsqueeze(0)   # trg->src: 1 2304 2304 
+                if args.AVG_ATTN_MAP:
+                    attn_maps12 = attn_maps12.mean(dim=0).unsqueeze(0)   # src->trg: 1 2304 2304 
+                    attn_maps21 = attn_maps21.mean(dim=0).unsqueeze(0)   # trg->src: 1 2304 2304 
+                else:
+                    print('Selected Attention Layers: ', args.VIS_LAYER)
+                    
+                    map12 = attn_maps12[args.VIS_LAYER[0]]
+                    map21 = attn_maps21[args.VIS_LAYER[0]]
+                    
+                    for vis_l in args.VIS_LAYER[1:]:
+                        map12 += attn_maps12[vis_l]
+                        map21 += attn_maps21[vis_l]
+                    
+                    map12 = map12 / len(args.VIS_LAYER)
+                    map21 = map21 / len(args.VIS_LAYER)
+                    
+                    attn_maps12 = map12.unsqueeze(0)
+                    attn_maps21 = map21.unsqueeze(0)
                 
                 attn_maps_img = attn_maps12 
                 attn_map_direction = 'attn_src_to_trg'
@@ -1220,11 +1236,6 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                         
                     # cv2.imwrite('./img1_kpt.jpg', img1_np[...,::-1])
                         
-                    if args.model == 'sd3_joint':
-                        vis_layers = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
-                    elif args.model == 'other_model':
-                        pass 
-                    
                     if args.VIS_ATTN_SRC_TO_TRG or args.VIS_ATTN_SRC_TO_SRC: 
                         vis_points1 = vis_points_src 
                         vis_points2 = scaled_kpts_trg
@@ -1234,8 +1245,17 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                         vis_points2 = scaled_kpts_src
                         img1_np, img2_np = img2_np, img1_np 
                     
-                    for l in vis_layers: 
-                        for j in range(len(vis_points1)):
+                         
+                    for j in range(len(vis_points1)):
+                        
+                        if args.AVG_ATTN_MAP:
+                            attn_maps_img = attn_maps_img.mean(dim=0).unsqueeze(0)  # 24 2304 2304 -> 2304 2304 -> 1 2304 2304 
+                            vis_layers = [0]
+                        
+                        else:
+                            vis_layers = args.VIS_LAYER
+
+                        for l in vis_layers:
                             
                             src_point = vis_points1[j]
                             trg_point = vis_points2[j]
@@ -1282,14 +1302,22 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                             else:     
                                 # Combine source and target images side by side
                                 combined_img = np.concatenate([img1_np_vis, np.uint8(255*masked_img)], axis=1)
-                                
-                            VIS_SAVE_PATH = f"{args.save_dir}/{attn_map_direction}/{img1_info['img1_cat']}/src{src_name}_trg{trg_name}/layer{l}"                        
+                            
+                            if args.AVG_ATTN_MAP:
+                                l='AVG'
+                                VIS_SAVE_PATH = f"{args.save_dir}/{attn_map_direction}/{img1_info['img1_cat']}/src{src_name}_trg{trg_name}"   
+                                FILE_SAVE_NAME = f"point{src_point}_src{src_name}_trg{trg_name}_layer{l}.jpg"
+                            
+                            else:
+                                VIS_SAVE_PATH = f"{args.save_dir}/{attn_map_direction}/{img1_info['img1_cat']}/src{src_name}_trg{trg_name}/point{src_point}"   
+                                FILE_SAVE_NAME = f"src{src_name}_trg{trg_name}_layer{l}.jpg"
+                                                     
                             # set save path 
                             if not os.path.exists(VIS_SAVE_PATH):
                                 os.makedirs(VIS_SAVE_PATH)
                                 
                             # Save visualization using torchvision
-                            cv2.imwrite(f"{VIS_SAVE_PATH}/src{src_name}_trg{trg_name}_point{src_point}.jpg", combined_img)         
+                            cv2.imwrite(f"{VIS_SAVE_PATH}/{FILE_SAVE_NAME}", combined_img)         
                 continue
             
             if not args.INFERENCE_FEAT_NO_SAVE:

@@ -1,0 +1,52 @@
+#!/bin/bash
+
+DATA_ARGS="
+    --dataset spair \
+    --eval_img_size 1024 1024 \
+"
+
+CUDA=2
+# Loop through different stop steps
+for stop_step in 18; do
+    # Loop through different feature types
+    for feat_type in attn_map; do
+        # Loop through different step counts
+        for inf_step_count in 1; do
+            # Loop through different mask attention
+            for msk_attn in -1; do   
+
+                MODEL_ARGS="
+                    --model sd3_joint \
+                    --inf_max_step 28 \
+                    --inf_stop_step ${stop_step} \
+                    --inf_step_count ${inf_step_count} \
+                "
+
+                LAYER_SELECTION_ARGS="
+                    --output_feat_type ${feat_type} \
+                "
+
+                LOG_ARGS="
+                    --save_dir ./vis/spair_SORTED_VALSPLIT360/sd3_JOINT/attn_map_avg/step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn} \
+                "
+
+                VIS_ARGS="
+                    --WANDB_LOG_FREQ 2 \
+                    --VIS_ATTN_MAP \
+                    --VIS_ATTN_SRC_TO_TRG \
+                    --AVG_ATTN_MAP \
+                "
+
+                ETC_ARGS="
+                    --seed 1997 \
+                    --SPAIR_VAL_SPLIT_360 \
+                    --SORT_VAL_JSON \
+                    --INFERENCE_FEAT_NO_SAVE \
+                    --MSK_ATTN ${msk_attn} \
+                "
+
+                CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py ${DATA_ARGS} ${MODEL_ARGS} ${LAYER_SELECTION_ARGS} ${LOG_ARGS} ${ETC_ARGS} ${VIS_ARGS}
+            done
+        done
+    done
+done

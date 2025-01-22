@@ -15,7 +15,7 @@ for stop_step in 14; do
     # Loop through different feature types
     for feat_type in mmdit_attn_3_scaleshift; do
         # Loop through different layers
-        for layer in 10; do
+        for layer in 20; do
             # Loop through different step counts
             for inf_step_count in 1; do
                 # Loop through different mask attention

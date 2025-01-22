@@ -250,6 +250,8 @@ if __name__ == "__main__":
     parser.add_argument('--VIS_ATTN_SRC_TO_SRC', action='store_true')
     parser.add_argument('--VIS_ATTN_TRG_TO_TRG', action='store_true')
     parser.add_argument('--VIS_ATTN_PROMPT', action='store_true')
+    parser.add_argument('--AVG_ATTN_MAP', action='store_true')
+    parser.add_argument('--VIS_LAYER', type=str, default='', help='visualization layer')
     
     # ETC_ARGS
     parser.add_argument('--EVAL_SAMPLE_NUM', type=int, default=-1, help='evaluation sample number')
@@ -260,7 +262,11 @@ if __name__ == "__main__":
     parser.add_argument('--MSK_ATTN', type=int, default=-1, help='mask attention')
     
     args = parser.parse_args()
-
+    
+    # post process args
+    if args.VIS_LAYER is not None:
+        args.VIS_LAYER = [int(layer) for layer in args.VIS_LAYER.split(',')]
+        
     torch.cuda.empty_cache()
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)

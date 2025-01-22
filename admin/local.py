@@ -18,7 +18,7 @@ class EnvironmentSettings:
         self.tss = ''
         self.PFPascal = '/media/data1/PF-dataset-PASCAL'
         self.PFWillow = ''
-        self.spair = '/media/dataset1/jinlovespho/github/DenseMatching/data/SPair-71k'
+        self.spair = './data/SPair-71k'
         self.caltech = ''
         self.training_cad_520 = '/media/dataset1/DPED/DPED'
         self.validation_cad_520 = '/media/dataset1/DPED/DPED_val'

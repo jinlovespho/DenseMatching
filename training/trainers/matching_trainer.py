@@ -8,6 +8,7 @@ import time
 import gc
 
 import torch.distributed as dist
+import wandb
 
 import sys
 import pdb
@@ -84,10 +85,10 @@ class MatchingTrainer(BaseTrainer):
             data['settings'] = self.settings
 
             # forward pass
-            loss, stats = self.actor(data, loader.training)
-
             # backward pass and update weights
             if loader.training:
+                loss, stats = self.actor(data, loader.training)
+                
                 grad_is_nan = False
                 self.optimizer.zero_grad()
                 # breakpoint()
@@ -102,7 +103,13 @@ class MatchingTrainer(BaseTrainer):
                 if not grad_is_nan:
                     self.optimizer.step()
 
-                del loss
+                del loss                
+            else:
+                with torch.no_grad():
+                    loss, stats = self.actor(data, loader.training)
+
+            if self.args.log_tool == 'wandb':
+                wandb.log({'Etc/learning_rate': self.lr_scheduler.get_last_lr()})
 
             if self.args.multi_gpu:
                 if dist.get_rank() == 0:
@@ -113,10 +120,15 @@ class MatchingTrainer(BaseTrainer):
                 batch_size = data['source_image'].shape[0]
                 self._update_stats(stats, batch_size, loader)
                 self._print_stats(i, loader, batch_size)
-
-        if not loader.training:
-            # update the current best value, for each epoch, can decide what is the best value.
-            self.current_best_val = self.stats[loader.name]['best_value'].avg
+        
+        if self.args.multi_gpu:
+            if not loader.training and dist.get_rank()==0:
+                # update the current best value, for each epoch, can decide what is the best value.
+                self.current_best_val = self.stats[loader.name]['best_value'].avg
+        else:
+            if not loader.training:
+                # update the current best value, for each epoch, can decide what is the best value.
+                self.current_best_val = self.stats[loader.name]['best_value'].avg
 
     def train_epoch(self):
         """Do one epoch for each loader."""
@@ -132,8 +144,8 @@ class MatchingTrainer(BaseTrainer):
 
             # ForkedPdb().set_trace()
             # for ddp training
-            # if self.args.multi_gpu and loader.name == 'train':
-            #     loader.sampler.set_epoch(self.epoch)
+            if self.args.multi_gpu and loader.name == 'train':
+                loader.sampler.set_epoch(self.epoch)
 
             # resample the training dataset if dataset_callback_fn exists
             if loader.name == 'train' and self.epoch > 1 and not self.just_started and self.settings.dataset_callback_fn:

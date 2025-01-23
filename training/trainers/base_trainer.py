@@ -3,6 +3,7 @@ import glob
 import torch
 import traceback
 from admin import loading, multigpu
+import torch.distributed as dist
 
 
 class BaseTrainer:
@@ -69,7 +70,7 @@ class BaseTrainer:
 
         self.just_started = True
         epoch = -1
-        num_tries = 2
+        num_tries = 1
         for i in range(num_tries):
             try:
                 if load_latest:
@@ -84,22 +85,41 @@ class BaseTrainer:
                     # update scheduler
                     if self.lr_scheduler is not None:
                         self.lr_scheduler.step()
+                    
+                    if self.args.multi_gpu:
+                        # save best checkpoint
+                        if dist.get_rank() == 0:
+                            if self.current_best_val is not None and self.current_best_val < self.best_val:
+                                print('VALIDATION IMPROVED ! From best value = {} at epoch {} to '
+                                    'best value = {} at current epoch {}'.
+                                    format(self.best_val, self.epoch_of_best_val, self.current_best_val, self.epoch))
+                                self.best_val = self.current_best_val
+                                self.epoch_of_best_val = self.epoch
 
-                    # save best checkpoint
-                    if self.current_best_val is not None and self.current_best_val < self.best_val:
-                        print('VALIDATION IMPROVED ! From best value = {} at epoch {} to '
-                              'best value = {} at current epoch {}'.
-                              format(self.best_val, self.epoch_of_best_val, self.current_best_val, self.epoch))
-                        self.best_val = self.current_best_val
-                        self.epoch_of_best_val = self.epoch
+                                self.save_checkpoint(name='model_best')
 
-                        self.save_checkpoint(name='model_best')
+                            self.just_started = False  # to enable resampling of dataset item at the next epoch
+                            # save checkpoint
+                            if self._base_save_dir:
+                                self.save_checkpoint()
+                                self.delete_old_checkpoints()  # keep only the most recent set of checkpoints
+                    else:
+                        # save best checkpoint
+                        if self.current_best_val is not None and self.current_best_val < self.best_val:
+                            print('VALIDATION IMPROVED ! From best value = {} at epoch {} to '
+                                'best value = {} at current epoch {}'.
+                                format(self.best_val, self.epoch_of_best_val, self.current_best_val, self.epoch))
+                            self.best_val = self.current_best_val
+                            self.epoch_of_best_val = self.epoch
 
-                    self.just_started = False  # to enable resampling of dataset item at the next epoch
-                    # save checkpoint
-                    if self._base_save_dir:
-                        self.save_checkpoint()
-                        self.delete_old_checkpoints()  # keep only the most recent set of checkpoints
+                            self.save_checkpoint(name='model_best')
+
+                        self.just_started = False  # to enable resampling of dataset item at the next epoch
+                        # save checkpoint
+                        if self._base_save_dir:
+                            self.save_checkpoint()
+                            self.delete_old_checkpoints()  # keep only the most recent set of checkpoints
+
 
             except:
                 print('Training crashed at epoch {}'.format(epoch))

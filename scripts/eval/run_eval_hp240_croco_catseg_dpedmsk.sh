@@ -1,5 +1,35 @@
 #!/bin/bash
 
+
+
+
+CUDA=3
+
+for epoch in 1 2 3 4; do 
+
+    CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py \
+        --seed 1997 \
+        --dataset hp-240 \
+        --eval_img_size 240 240 \
+        --model_img_size 224 224 \
+        --model croco_catseg \
+        --pre_trained_models croco \
+        --croco_ckpt ./pretrained_weights/CroCo_V2_ViTLarge_BaseDecoder.pth \
+        --path_to_pre_trained_models /home/cvlab08/projects/data/jinlovespho/dm_final/train_settings/croco/train_croco_static_stage1_multigpu/server8_pho0,1,2_TRAIN_CVPR2025REBUTTAL_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1/CroCoNet_ep000${epoch}.pth.tar \
+        --output_flow_interp \
+        --output_ca_map \
+        --softmax_camap \
+        --correlation \
+        --reciprocity \
+        --save_dir ./vis/eval/hp240_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep000${epoch} \
+        --log_tool wandb \
+        --wandb_path ./ \
+        --wandb_proj_name matching_dped \
+        --wandb_exp_name server8_pho${CUDA}_EVAL_CVPR2025REBUTTAL_hp240_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep000${epoch} \
+        --wandb_log_img \
+
+done
+
 # ep(57) - /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0057.pth.tar
 # Validation EPE: 4.867763, 1px: 0.750827, 3px: 0.936564, 5px: 0.962140
 
@@ -14,36 +44,13 @@
 
 # (ep100) - /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0100.pth.tar
 # Validation EPE: 4.754663, 1px: 0.789996, 3px: 0.943419, 5px: 0.964041
+# zoom234 - Validation EPE: 14.698702, 1px: 0.472491, 3px: 0.833618, 5px: 0.911935
+# zoom345 - Validation EPE: 14.950584, 1px: 0.490877, 3px: 0.833727, 5px: 0.909261
 
 # (model_best) - /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_model_best.pth.tar
 # Validation EPE: 4.761091, 1px: 0.792701, 3px: 0.943957, 5px: 0.964300
-
-
-CUDA=4
-CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py \
-    --seed 1997 \
-    --dataset hp-224 \
-    --eval_img_size 224 224 \
-    --model_img_size 224 224 \
-    --model croco_catseg \
-    --pre_trained_models croco \
-    --croco_ckpt ./pretrained_weights/CroCo_V2_ViTLarge_BaseDecoder.pth \
-    --path_to_pre_trained_models /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_model_best.pth.tar \
-    --output_flow_interp \
-    --output_ca_map \
-    --softmax_camap \
-    --correlation \
-    --reciprocity \
-    --save_dir ./vis/eval/hp224_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_model_best_fineflow \
-    --log_tool wandb \
-    --wandb_path ./ \
-    --wandb_proj_name matching_dped \
-    --wandb_exp_name pho_EVAL_hp224_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_model_best_fineflow \
-    --wandb_log_img \
-    # --compute_metrics_uncertainty \
-    # --plot \
-    # --plot_100 \
-    # --plo
+# zoom234 - Validation EPE: 14.699932, 1px: 0.477581, 3px: 0.834174, 5px: 0.912208
+# zoom345 - Validation EPE: 14.984115, 1px: 0.493292, 3px: 0.834593, 5px: 0.910013
 
 
 
@@ -144,8 +151,6 @@ CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py \
 
 # 4. catseg_freezeCrocoAll_try1_CroCoNet_ep0027
 # --path_to_pre_trained_models /media/dataset3/jinlovespho/ckpt/server8/dm_final/server8_pho3_TRAIN_dpedmsk_img224_bs12_lr1e4_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep0027.pth.tar \
-
-
 
 
 

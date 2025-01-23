@@ -324,12 +324,13 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
         target_img = mini_batch['target_image']
         flow_gt = mini_batch['flow_map'].to(device)
         mask_valid = mini_batch['correspondence_mask'].to(device)
+        mask_valid_orig = mask_valid.clone()
+        
+        b, _, H_orig, W_orig = source_img.shape  
 
-        b,c,h,w = source_img.shape
-
-        source_img = source_img.float().to(device) # 1 3 h w
-        target_img = target_img.float().to(device) # 1 3 h w
-
+        source_img_orig = source_img.clone().to(device) / 255.0
+        target_img_orig = target_img.clone().to(device) / 255.0
+        
         # save_image(source_img, f'./img_src.jpg', normalize=True)
         # save_image(target_img, f'./img_tgt.jpg', normalize=True)
         # save_image(mask_valid.float(), f'./img_mask.jpg', normalize=True)
@@ -355,9 +356,16 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
 
         # crocoflow, croco_catseg, 
         if 'croco' in args.model:   
+            H_224, W_224 = args.model_img_size
             source_img = source_img / 255.0
             target_img = target_img / 255.0
-
+            in1k_mean = torch.tensor([0.485, 0.456, 0.406]).view(3,1,1)
+            in1k_std =  torch.tensor([0.229, 0.224, 0.225]).view(3,1,1)
+            source_img = (source_img - in1k_mean) / in1k_std
+            target_img = (target_img - in1k_mean) / in1k_std
+            source_img = source_img.to(device)
+            target_img = target_img.to(device)
+            
             # for crocoflow as it predicts uncertainty
             if estimate_uncertainty:
                 output = network(target_img, source_img)
@@ -366,14 +374,20 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
             
             # for other croco models that doesnt predict uncertainty
             else:
+                source_img = F.interpolate(source_img, size=(H_224, W_224), mode='bilinear', align_corners=False).to(device)
+                target_img = F.interpolate(target_img, size=(H_224, W_224), mode='bilinear', align_corners=False).to(device)
+                
                 if args.model =='croco_catseg':
                     if args.dense_zoom_in:
                         flow_est, uncertainty_est = network.zoom_in_batch(source_img, target_img, zoom_ratio=args.dense_zoom_ratio, optimize=False, homo_only=False, batch_size=b)
                     else:
                         output_flow = network(target_img, source_img)   
                         # output_flow = [fine_flow, coarse_flow] 
-                        flow_est = output_flow[0]   # fine_flow
-                        # flow_est = output_flow[1]   # coarse_flow
+                        flow_est = output_flow[0]   # fine_flow     # 1 2 224 224 
+                        flow_est = F.interpolate(flow_est, size=(H_orig, W_orig), mode='bilinear', align_corners=False).to(device)
+                        flow_est[:,0,:,:] *= W_orig/args.eval_img_size[1]                # 1 2 240 240
+                        flow_est[:,1,:,:] *= H_orig/args.eval_img_size[0]                # 1 2 240 240       
+
 
                 elif args.model == 'future croco models':
                     pass
@@ -398,16 +412,16 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
             # Log warped images to wandb for first few batches
             if i_batch < wandb_num_log_img and args.log_tool is not None:
                 # Warp source image using ground truth and estimated flows
-                warped_source_gt = warp(source_img, flow_gt)  
-                warped_source_est = warp(source_img, flow_est)
+                warped_source_gt = warp(source_img_orig, flow_gt)  
+                warped_source_est = warp(source_img_orig, flow_est)
                 # Apply mask to warped estimated flow
-                warped_source_est_masked = warped_source_est * mask_valid.unsqueeze(1)
+                warped_source_est_masked = warped_source_est * mask_valid_orig.unsqueeze(1)
 
                 # Create grid of images for visualization
                 img_grid = torch.cat([
-                    torch.cat([source_img[0], target_img[0]], dim=2),
+                    torch.cat([source_img_orig[0], target_img_orig[0]], dim=2),
                     torch.cat([warped_source_gt[0], warped_source_est[0]], dim=2),  # warped_source는 최종적으로 Tgt이미지가 나와야하는 것!
-                    torch.cat([mask_valid[0].unsqueeze(0).repeat(3,1,1), # Repeat mask 3 times for RGB channels
+                    torch.cat([mask_valid_orig[0].unsqueeze(0).repeat(3,1,1), # Repeat mask 3 times for RGB channels
                             warped_source_est_masked[0]], dim=2) # Show masked warped estimate in last column
                 ], dim=1)
                 # Save image grid locally
@@ -417,12 +431,12 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
                     wandb.log({
                         f"vis_warped_flow_{name_dataset}_rate{rate}/img_{i_batch}": wandb.Image(
                             img_grid.cpu(),
-                            caption=f"Top: Query | Reference, Middle: Warped (GT) | Warped (Est), Bottom: Valid Mask | Masked Warped (Est), Img_size: {h}x{w}")})
+                            caption=f"Top: Query | Reference, Middle: Warped (GT) | Warped (Est), Bottom: Valid Mask | Masked Warped (Est), Img_size: {H_orig}x{W_orig}")})
                 else:
                     wandb.log({
                         f"vis_warped_flow_{curr_id+1}/img_{i_batch}": wandb.Image(
                             img_grid.cpu(),
-                            caption=f"Top: Source | Target, Middle: Warped (GT) | Warped (Est), Bottom: Valid Mask | Masked Warped (Est), Img_size: {h}x{w}")})
+                            caption=f"Top: Source | Target, Middle: Warped (GT) | Warped (Est), Bottom: Valid Mask | Masked Warped (Est), Img_size: {H_orig}x{W_orig}")})
             # =========================== Cursor ==================================
 
         flow_est = flow_est.permute(0, 2, 3, 1)[mask_valid]

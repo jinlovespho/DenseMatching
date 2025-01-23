@@ -370,7 +370,6 @@ class CrocoBasedActor(BaseActor):
             else:
                 stats['best_value'] = - stats['PCK_1_HNet_reso_{}x{}/EPE'.format(h_, w_)]
 
-        # breakpoint()
         if self.args.log_tool == 'wandb':
             # log stats
             wandb.log(stats)
@@ -383,10 +382,12 @@ class CrocoBasedActor(BaseActor):
 
                 if isinstance(output_net_original, dict):
                     output_net_original = output_net_original['flow_estimates'][0]  # fine flow
+                elif isinstance(output_net_original, list):
+                    output_net_original = output_net_original[0]    # fine flow
 
                 # Warp source image using ground truth and estimated flows
-                warped_source_gt = warp_image(mini_batch['source_image'], mini_batch['flow_map'])
-                warped_source_est = warp_image(mini_batch['source_image'], output_net_original)
+                warped_source_gt = warp(mini_batch['source_image'], mini_batch['flow_map'])
+                warped_source_est = warp(mini_batch['source_image'], output_net_original)
                 
                 # Create grid of images for visualization
                 img_grid = torch.cat([
@@ -401,12 +402,6 @@ class CrocoBasedActor(BaseActor):
                         caption=f"Top: Source | Target, Bottom: Warped (GT) | Warped (Est), Img_size: {h}x{w}"
                     )
                 })
-            # =========================== Cursor ==================================
-
-
-
-
-
 
 
             # training_or_validation = 'train' if training else 'val'

@@ -1,7 +1,7 @@
 #!/bin/bash
 
-CUDA=4
-BATCH_SIZE=10
+CUDA=3
+BATCH_SIZE=12
 
 DATA_ARGS="
     --dataset dped \
@@ -11,7 +11,7 @@ TRAIN_ARGS="
     --seed 1997 \
     --img_size 224 224 \
     --batch_size ${BATCH_SIZE} \
-    --lr 1e-3 \
+    --lr 1e-4 \
     --max_epoch 100 \
 "
 MODEL_ARGS="
@@ -31,7 +31,7 @@ LOG_ARGS="
     --log_tool wandb \
     --wandb_path ./ \
     --wandb_proj_name matching_dped \
-    --wandb_exp_name pho${CUDA}_TRAIN_dpedmsk_img224_bs${BATCH_SIZE}_lr1e3_croco_catseg_freezeCrocoAll_try1 \
+    --wandb_exp_name server8_pho${CUDA}_TRAIN_dpedmsk_img224_bs${BATCH_SIZE}_lr1e4_croco_catseg_freezeCrocoAll_try1 \
 "
 ETC_ARGS="
 

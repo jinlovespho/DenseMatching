@@ -122,7 +122,6 @@ def run(settings, args):
             # for crocoflow
             elif 'head' in name:    
                 param.requires_grad = True
-
             else:
                 param.requires_grad = False
     else:
@@ -182,6 +181,7 @@ def run(settings, args):
                                          gamma=0.5)
 
     train_val_loader = [train_loader, val_loader]
+    
     # 9. Define Trainer
     trainer = MatchingTrainer(GLUNetActor, train_val_loader, optimizer, settings, lr_scheduler=scheduler, args=args)
     trainer.train(settings.n_epochs, load_latest=False, fail_safe=True)

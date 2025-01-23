@@ -312,39 +312,39 @@ class MultiscaleBlock(nn.Module):
         
         
 
-    def forward(self, x):
-        '''
-        Multi-level aggregation
-        '''
-        B, N, H, W = x.shape
-        if N == 1:
-            x = x.flatten(0, 1)
-            x = x + self.drop_path(self.attn(self.norm1(x)))
-            x = x + self.drop_path(self.mlp(self.norm2(x)))
-            return x.view(B, N, H, W)
+    # def forward(self, x):
+    #     '''
+    #     Multi-level aggregation
+    #     '''
+    #     B, N, H, W = x.shape
+    #     if N == 1:
+    #         x = x.flatten(0, 1)
+    #         x = x + self.drop_path(self.attn(self.norm1(x)))
+    #         x = x + self.drop_path(self.mlp(self.norm2(x)))
+    #         return x.view(B, N, H, W)
         
-        x = x.flatten(0, 1)
-        x = self.block_1(x)
+    #     x = x.flatten(0, 1)
+    #     x = self.block_1(x)
 
         
-        x = x.view(B, N, H, -1).transpose(1, 2).flatten(0, 1)   
-        x = x + self.drop_path(self.attn_multiscale(self.norm1(x)))
-        x = x.view(B, H, N, -1).transpose(1, 2).flatten(0, 1)
-        x = x + self.drop_path(self.mlp(self.norm2(x)))
-        x = x.view(B, N, H, -1)
+    #     x = x.view(B, N, H, -1).transpose(1, 2).flatten(0, 1)   
+    #     x = x + self.drop_path(self.attn_multiscale(self.norm1(x)))
+    #     x = x.view(B, H, N, -1).transpose(1, 2).flatten(0, 1)
+    #     x = x + self.drop_path(self.mlp(self.norm2(x)))
+    #     x = x.view(B, N, H, -1)
         
         
-        x = x.flatten(0, 1)        
+    #     x = x.flatten(0, 1)        
         
-        x = self.block_2(x)
-        x = x.view(B, N, H, -1).transpose(1, 2).flatten(0, 1) 
-        x = x + self.drop_path(self.attn_multiscale2(self.norm3(x)))
-        x = x.view(B, H, N, -1).transpose(1, 2).flatten(0, 1)
-        x = x + self.drop_path(self.mlp2(self.norm4(x)))
-        x = x.view(B, N, H, -1)
+    #     x = self.block_2(x)
+    #     x = x.view(B, N, H, -1).transpose(1, 2).flatten(0, 1) 
+    #     x = x + self.drop_path(self.attn_multiscale2(self.norm3(x)))
+    #     x = x.view(B, H, N, -1).transpose(1, 2).flatten(0, 1)
+    #     x = x + self.drop_path(self.mlp2(self.norm4(x)))
+    #     x = x.view(B, N, H, -1)
         
 
-        return x
+    #     return x
 
     def forward(self, x):
         '''

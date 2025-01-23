@@ -9,7 +9,7 @@ DATA_ARGS="
 #               mmdit_attn mmdit_attn_1_scale mmdit_attn_2_res mmdit_attn_3_scaleshift mmdit_attn_4_norm
 #               mmdit_ff mmdit_ff_1_scale mmdit_ff_2_res
 
-CUDA=1
+CUDA=3
 # Loop through different stop steps
 for stop_step in 20; do
     # Loop through different feature types
@@ -19,7 +19,7 @@ for stop_step in 20; do
             # Loop through different mask attention
             for msk_attn in -1; do 
                 # select attention layers 
-                for vis_layer in "4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19"; do
+                for vis_layer in "9,10,11,12"; do
                     # Loop through different beta softargmax
                     for beta in 1e-4; do
 

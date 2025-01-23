@@ -63,7 +63,7 @@ def unnormalise_and_convert_mapping_to_flow(map):
     if mapping.is_cuda:
         grid = grid.cuda()
     flow = mapping - grid
-    return flow
+    return flow, mapping
 
 
 class OpticalFlowEstimator(nn.Module):

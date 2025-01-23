@@ -284,11 +284,14 @@ class JointTransformerBlock(nn.Module):
         
         # JLP - preprocess extract feat 
         if args.model == 'sd3_joint':
-            if not args.VIS_ATTN_MAP:
+            if args.VIS_ATTN_MAP or args.FLOW_CAMAP:
+                pass 
+            else:
                 _, n, _ = EXTRACT_FEAT.shape             # 4096
                 src_feat = EXTRACT_FEAT[0, :n//2]        # 2048
                 trg_feat = EXTRACT_FEAT[0, n//2:]        # 2048
                 EXTRACT_FEAT = torch.stack([src_feat, trg_feat], dim=0)  # 2 2048 1536
+
             
         # JLP - extract feat
         my_output[args.output_feat_type] = EXTRACT_FEAT

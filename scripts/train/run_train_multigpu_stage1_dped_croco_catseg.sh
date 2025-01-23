@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CUDA=2,3,4,5
+CUDA="0,1,2,3"
 BATCH_SIZE=12
 NPROC_PER_NODE=4
 DATA_ARGS="
@@ -11,7 +11,7 @@ TRAIN_ARGS="
     --seed 1997 \
     --img_size 224 224 \
     --batch_size ${BATCH_SIZE} \
-    --lr 1e-3 \
+    --lr 1e-4 \
     --max_epoch 100 \
 "
 MODEL_ARGS="
@@ -31,7 +31,7 @@ LOG_ARGS="
     --log_tool wandb \
     --wandb_path ./ \
     --wandb_proj_name matching_dped \
-    --wandb_exp_name pho${CUDA}_ddp_test \
+    --wandb_exp_name server8_actually5_pho${CUDA}_ddp_test \
 "
 ETC_ARGS="
     --multi_gpu \

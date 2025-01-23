@@ -19,9 +19,9 @@ for stop_step in 20; do
             # Loop through different mask attention
             for msk_attn in -1; do 
                 # select attention layers 
-                for vis_layer in "4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19"; do
+                for vis_layer in "0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23"; do
                     # Loop through different beta softargmax
-                    for beta in 1e-4; do
+                    for beta in 1e-2; do
 
                         MODEL_ARGS="
                             --model sd3_joint \

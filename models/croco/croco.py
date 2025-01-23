@@ -90,12 +90,12 @@ class CroCoNet(nn.Module):
                 nn.ReLU(),
                 )
 
-        # if self.model == 'croco_catseg':
-        #     from models.croco.cats_swin_decoder import CATs_SWIN_Decoder
-        #     # ForkedPdb().set_trace()
-        #     self.cats_swin_decoder = CATs_SWIN_Decoder(feature_size=(img_size[0]//16), hyperpixel_ids = [i for i in range(0, 12)], args=args)
-        # elif self.model == '':
-        #     pass
+        if self.model == 'croco_catseg':
+            from models.croco.cats_swin_decoder import CATs_SWIN_Decoder
+            # ForkedPdb().set_trace()
+            self.cats_swin_decoder = CATs_SWIN_Decoder(feature_size=(img_size[0]//16), hyperpixel_ids = [i for i in range(0, 12)], args=args)
+        elif self.model == '':
+            pass
                 
         # patch embeddings  (with initialization done as in MAE)
         self._set_patch_embed(img_size, patch_size, enc_embed_dim)

@@ -20,8 +20,8 @@ class EnvironmentSettings:
         self.PFWillow = ''
         self.spair = './data/SPair-71k'
         self.caltech = ''
-        self.training_cad_520 = '/media/dataset1/DPED/DPED'
-        self.validation_cad_520 = '/media/dataset1/DPED/DPED_val'
+        self.training_cad_520 = '/media/dataset2/DPED/DPED'
+        self.validation_cad_520 = '/media/dataset2/DPED/DPED_val'
         self.coco = '/media/dataset1/COCO2014'
         self.megadepth_training = '/media/dataset1/MegaDepth'
         

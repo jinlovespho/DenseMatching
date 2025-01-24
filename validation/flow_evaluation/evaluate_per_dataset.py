@@ -1032,75 +1032,40 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
 
             # evaluate without saving feats
             if args.INFERENCE_FEAT_NO_SAVE:
+       
+                if args.model == 'sd3_single' or args.model == 'sd3_joint':
+                    extracted_feat = network.forward(   img1_info=img1_info,
+                                                        img2_info=img2_info,
+                                                        prompt=prompt,
+                                                        negative_prompt="",
+                                                        num_inference_steps=args.inf_max_step,
+                                                        height=args.eval_img_size[0],
+                                                        width=args.eval_img_size[1],
+                                                        guidance_scale=7.0,
+                                                        do_classifier_free_guidance=args.DO_CFG)
                 
-                if args.VIS_ATTN_MAP and i % args.WANDB_LOG_FREQ == 0:  # for attn map visualization only forward pass the imgs to be visualized
+                elif args.model == 'cogvid_single':
+                    extracted_feat = network.forward(   img1_info=img1_info,
+                                                        img2_info=img2_info,
+                                                        num_frames=2,
+                                                        prompt=prompt,
+                                                        negative_prompt="",
+                                                        num_inference_steps=args.inf_max_step,
+                                                        height=args.eval_img_size[0],
+                                                        width=args.eval_img_size[1],
+                                                        guidance_scale=7.0,
+                                                        do_classifier_free_guidance=True)
                     
-                    if args.model == 'sd3_single' or args.model == 'sd3_joint':
-                        extracted_feat = network.forward(   img1_info=img1_info,
-                                                            img2_info=img2_info,
-                                                            prompt=prompt,
-                                                            negative_prompt="",
-                                                            num_inference_steps=args.inf_max_step,
-                                                            height=args.eval_img_size[0],
-                                                            width=args.eval_img_size[1],
-                                                            guidance_scale=7.0,
-                                                            do_classifier_free_guidance=args.DO_CFG)
+                    ''' extracted_feat: 24 2 2304 1536
+                    '''
                     
-                    elif args.model == 'cogvid_single':
-                        extracted_feat = network.forward(   img1_info=img1_info,
-                                                            img2_info=img2_info,
-                                                            num_frames=2,
-                                                            prompt=prompt,
-                                                            negative_prompt="",
-                                                            num_inference_steps=args.inf_max_step,
-                                                            height=args.eval_img_size[0],
-                                                            width=args.eval_img_size[1],
-                                                            guidance_scale=7.0,
-                                                            do_classifier_free_guidance=True)
-                        
-                        ''' extracted_feat: 24 2 2304 1536
-                        '''
-                        
-                    elif args.model == 'another_model':
-                        pass
-                
-                
-                elif not args.VIS_ATTN_MAP:
-                    
-                    if args.model == 'sd3_single' or args.model == 'sd3_joint':
-                        extracted_feat = network.forward(   img1_info=img1_info,
-                                                            img2_info=img2_info,
-                                                            prompt=prompt,
-                                                            negative_prompt="",
-                                                            num_inference_steps=args.inf_max_step,
-                                                            height=args.eval_img_size[0],
-                                                            width=args.eval_img_size[1],
-                                                            guidance_scale=7.0,
-                                                            do_classifier_free_guidance=args.DO_CFG)
-                    
-                    elif args.model == 'cogvid_single':
-                        extracted_feat = network.forward(   img1_info=img1_info,
-                                                            img2_info=img2_info,
-                                                            num_frames=2,
-                                                            prompt=prompt,
-                                                            negative_prompt="",
-                                                            num_inference_steps=args.inf_max_step,
-                                                            height=args.eval_img_size[0],
-                                                            width=args.eval_img_size[1],
-                                                            guidance_scale=7.0,
-                                                            do_classifier_free_guidance=True)
-                        
-                        ''' extracted_feat: 24 2 2304 1536
-                        '''
-                        
-                    elif args.model == 'another_model':
-                        pass
-                
-                else:
-                    print('ERROR! ')
+                elif args.model == 'another_model':
+                    pass
+
                         
             # compute flow with camap (like zeroco)
             if args.FLOW_CAMAP:
+                print('-'*70)
                 print("MATCHING WITH FLOW CAMAP")
                 assert args.output_feat_type == 'attn_map'
 
@@ -1140,7 +1105,7 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                 # width: 64 
                 
                 beta=args.softargmax_beta
-                print('SOFTARGMAX_BETA: ', beta)
+                print('Soft-argmax beta: ', beta)
                 
                 # compute mapping for src 
                 grid_src_x, grid_src_y = soft_argmax(attn_maps_img12.transpose(-1,-2).reshape(1, -1,feat_H, feat_W), beta=beta)       
@@ -1172,6 +1137,7 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
             if args.VIS_ATTN_MAP:
                 
                 if i % args.WANDB_LOG_FREQ == 0:
+                    print(f'Visualizing attn maps for {cat}, pair{i}/{len(cat_list)}')
                     
                     # OUTPUT FEATURE MUST BE ATTENTION MAPS! 
                     assert args.output_feat_type == 'attn_map'
@@ -1329,7 +1295,7 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                                 os.makedirs(VIS_SAVE_PATH)
                             
                             if args.log_tool == 'wandb':
-                                wandb.log({f"vis_ATTN_MAP_{img1_info['img1_cat']}_src_to_trg/point{j}_{src_point}_src{src_name}_trg{trg_name}": wandb.Image(combined_img[:,:,::-1]) })
+                                wandb.log({f"vis_ATTN_MAP_{img1_info['img1_cat']}_src_to_trg/point{j}_src{src_name}_trg{trg_name}_tknidx{src_point}": wandb.Image(combined_img[:,:,::-1]) })
                                 # breakpoint()
                             else:
                                 # Save visualization using torchvision
@@ -1406,7 +1372,7 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                                 os.makedirs(VIS_SAVE_PATH)
                             
                             if args.log_tool == 'wandb':
-                                wandb.log({f"vis_ATTN_MAP_{img1_info['img1_cat']}_trg_to_src/point{j}_{src_point}_trg{src_name}_src{trg_name}": wandb.Image(combined_img[:,:,::-1]) })
+                                wandb.log({f"vis_ATTN_MAP_{img1_info['img1_cat']}_trg_to_src/point{j}_src{src_name}_trg{trg_name}_tknidx{src_point}": wandb.Image(combined_img[:,:,::-1]) })
                                 # breakpoint()
                             else:
                                 # Save visualization using torchvision
@@ -1659,6 +1625,7 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                         combined_vis = np.hstack((src_img.copy(), trg_img.copy()))
                         # cv2.imwrite('./img_combined.jpg', combined_vis)
 
+                print(f'Calculating metric for {cat}, pair{i}/{len(cat_list)}')
                 total = 0
                 correct = 0
                 # scale keypoints 

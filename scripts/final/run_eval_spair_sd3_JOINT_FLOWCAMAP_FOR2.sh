@@ -11,7 +11,7 @@ DATA_ARGS="
 
 CUDA=2
 # Loop through different stop steps
-for stop_step in 20; do
+for stop_step in 16 18 22 24; do
     # Loop through different feature types
     for feat_type in attn_map; do
         # Loop through different step counts

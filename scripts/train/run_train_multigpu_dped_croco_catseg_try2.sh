@@ -31,10 +31,11 @@ LOG_ARGS="
     --log_tool wandb \
     --wandb_path ./ \
     --wandb_proj_name matching_dped \
-    --wandb_exp_name server8_pho${CUDA}_TRAIN_CVPR2025REBUTTAL_dpedmsk_img224_bs${BATCH_SIZE}_lr1e4_croco_catseg_freezeCrocoAll_try1 \
+    --wandb_exp_name server8_pho${CUDA}_TRAIN_CVPR2025REBUTTAL_dpedmsk_img224_bs${BATCH_SIZE}_lr1e4_croco_catseg_freezeCrocoAll_try2 \
 "
 ETC_ARGS="
     --multi_gpu \
+    --output_correlation dec_feat \
 "
 
 CUDA_VISIBLE_DEVICES=${CUDA} \

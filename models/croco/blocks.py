@@ -186,7 +186,7 @@ class CrossAttention(nn.Module):
         x = (attn @ v).transpose(1, 2).reshape(B, Nq, C)
         x = self.proj(x)
         x = self.proj_drop(x)
-        return x,attn_tmp
+        return x, attn_tmp
 
 class DecoderBlock(nn.Module):
 

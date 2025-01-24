@@ -289,6 +289,9 @@ if __name__ == "__main__":
     parser.add_argument('--reciprocity', action='store_true', help='compute reciprocity? default is False')
     parser.add_argument('--uncertainty', action='store_true', help='compute uncertainty? default is False')
     parser.add_argument('--model_img_size', nargs='+', type=int, help='model image size')
+    
+    # output corr args 
+    parser.add_argument('--output_correlation', type=str, default='attn_map', help='Output correlation')
 
     # inference 
     parser.add_argument('--dense_zoom_in', action='store_true', help='dense zoom in default is False')

@@ -21,6 +21,7 @@ from utils_flow.pixel_wise_mapping import warp
 import torch.nn.functional as F
 from einops import rearrange
 
+from models.croco.mod import FeatureL2Norm
 
 
 class CroCoNet(nn.Module):
@@ -50,6 +51,7 @@ class CroCoNet(nn.Module):
         self.output_ca_map = args.output_ca_map
         self.softmax_camap = args.softmax_camap
         self.img_size = img_size
+        self.output_correlation = args.output_correlation
 
         if self.model == 'croco_catseg':
             from models.croco.cats_swin_decoder import CATs_SWIN_Decoder
@@ -412,16 +414,52 @@ class CroCoNet(nn.Module):
         decfeat, attn_map = self._decoder(feat_target, pos_target, mask_target, feat_source, pos_source, return_all_blocks=True)
         if self.reciprocity:
             decfeat_source, attn_map_source = self._decoder(feat_source, pos_source, mask_source, feat_target, pos_target, return_all_blocks=True)
-        
-        ## heuristic attention refine
-        attn_map = [attn.mean(dim=1).detach() for attn in attn_map]
-        for i in range(len(attn_map)):
-            attn_map[i][:,:,0]=attn_map[i].min()
-        self.attn_map = attn_map
-        if self.reciprocity:
-            attn_map_source = [attn.mean(dim=1).detach() for attn in attn_map_source]
-            for i in range(len(attn_map_source)):
-                attn_map_source[i][:,:,0]=attn_map_source[i].min()    
+       
+        # breakpoint()
+        if self.output_correlation == 'enc_feat':
+            feats1, feats2 = feat_targets, feat_sources
+            
+            l2norm = FeatureL2Norm() 
+            feats1 = [l2norm(feat.detach().permute(0,2,1)).permute(0,2,1) for feat in feats1]
+            feats2 = [l2norm(feat.detach().permute(0,2,1)).permute(0,2,1) for feat in feats2] 
+            
+            attn_map = [torch.einsum('bnd, bmd -> bnm', feats1[i], feats2[i]) for i in range(len(feats1))]
+            attn_map_source = [torch.einsum('bnd, bmd -> bnm', feats2[i], feats1[i]) for i in range(len(feats2))]
+            # # use the last encoder feature
+            # feat1, feat2 = feats1[-1], feats2[-1]  # b n d 
+            # l2norm = FeatureL2Norm()   
+            # # from (b, n, d) normalize along the d dimension.
+            # feat1 = l2norm(feat1.permute(0,2,1)).permute(0,2,1)    
+            # feat2 = l2norm(feat2.permute(0,2,1)).permute(0,2,1)
+            # corr = torch.einsum('bnd, bmd -> bnm', feat1, feat2)    # b 196 196
+            
+        elif self.output_correlation == 'dec_feat':
+            dec_feats1, dec_feats2 = decfeat, decfeat_source        # dec_feat1, dec_feat2: [ft1_1, ft1_2, ... ,f1_12] 
+            
+            l2norm = FeatureL2Norm()
+            dec_feats1 = [l2norm(feat.detach().permute(0,2,1)).permute(0,2,1) for feat in dec_feats1]
+            dec_feats2 = [l2norm(feat.detach().permute(0,2,1)).permute(0,2,1) for feat in dec_feats2]
+            
+            attn_map = [torch.einsum('bnd, bmd -> bnm', dec_feats1[i], dec_feats2[i]) for i in range(len(dec_feats1))]
+            attn_map_source = [torch.einsum('bnd, bmd -> bnm', dec_feats2[i], dec_feats1[i]) for i in range(len(dec_feats2))]
+            # # use the first decoder feature
+            # dec_feat1, dec_feat2 = dec_feats1[0], dec_feats2[0]
+            # # from (b, n, d) normalize along the d dimension.
+            # dec_feat1 = l2norm(dec_feat1.permute(0,2,1)).permute(0,2,1)    # b 196 768
+            # dec_feat2 = l2norm(dec_feat2.permute(0,2,1)).permute(0,2,1)
+            # corr = torch.einsum('bnd, bmd -> bnm', dec_feat1, dec_feat2)    # b 196 196
+            
+        else:
+            ## heuristic attention refine
+            attn_map = [attn.mean(dim=1).detach() for attn in attn_map] # avg heads
+            for i in range(len(attn_map)):
+                attn_map[i][:,:,0]=attn_map[i].min()
+            self.attn_map = attn_map    # list: [map0, map1, ... ,map11], map0: b 196 196
+            if self.reciprocity:
+                attn_map_source = [attn.mean(dim=1).detach() for attn in attn_map_source]
+                for i in range(len(attn_map_source)):
+                    attn_map_source[i][:,:,0]=attn_map_source[i].min() 
+                  
         
         if self.model == 'cats_swin':
             decfeat = [feat.detach() for feat in decfeat]

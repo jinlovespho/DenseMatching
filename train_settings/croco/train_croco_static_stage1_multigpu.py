@@ -95,27 +95,37 @@ def run(settings, args):
     if args.model == 'crocoflow':
         from models.orig_croco.models.croco_downstream import CroCoDownstreamBinocular, croco_args_from_ckpt
         from models.orig_croco.models.head_downstream import PixelwiseTaskWithDPT
-        ckpt = torch.load(args.croco_ckpt, 'cpu')   # crocoflow.pth
-        ckpt_args = ckpt['args']
-        ckpt_args.croco_args['img_size'] = args.img_size if args.img_size is not None else [320, 384]
-        task = ckpt_args.task   # 'flow'
-        tile_conf_mode = ckpt_args.tile_conf_mode   # tile_conf_mode='conf_expsigmoid_10_5'
+
+        # finetune crocoflow on DPED from crocov2 ckpt
+        if args.croco_ckpt is not None:
+            croco_ckpt = torch.load(args.croco_ckpt, 'cpu')
+            crocoflow_ckpt = torch.load(args.crocoflow_ckpt, 'cpu')
+            crocoflow_ckpt['args'].croco_args['img_size'] = args.img_size   # 224 224  
+            crocoflow_ckpt['args'].crop = args.img_size                     # 224 224 
+            crocoflow_ckpt['model'] = croco_ckpt['model']
+            
+        # finetune crocoflow on DPED from crocoflow ckpt
+        else:
+            crocoflow_ckpt = torch.load(args.crocoflow_ckpt, 'cpu')
+        
+        # ckpt = torch.load(args.croco_ckpt, 'cpu')   # crocoflow.pth
+        # ckpt_args = ckpt['args'] if 'args' in ckpt.keys() else ckpt['croco_kwargs']
+        # ckpt_args.croco_args['img_size'] = args.img_size if args.img_size is not None else [320, 384]
+        task = crocoflow_ckpt['args'].task   # 'flow'
         num_channels = {'stereo': 1, 'flow': 2}[task]   # 2
         with_conf = True
         if with_conf: num_channels += 1
-        if dist.get_rank() == 0:
-            print('head: PixelwiseTaskWithDPT()')
+        print('head: PixelwiseTaskWithDPT()')
         head = PixelwiseTaskWithDPT()
         head.num_channels = num_channels
-        if dist.get_rank() == 0:
-            print('croco_args:', ckpt_args.croco_args)
-        croco_args = ckpt_args.croco_args
+        print('croco_args:', crocoflow_ckpt['args'].croco_args)
+        croco_args = crocoflow_ckpt['args'].croco_args
         model = CroCoDownstreamBinocular(head, **croco_args)
-        msg = model.load_state_dict(ckpt['model'], strict=True)
+        msg = model.load_state_dict(crocoflow_ckpt['model'], strict=False)
         if dist.get_rank() == 0:
             print('CROCO WEIGHT WELL LOADED: ', msg)
-        model = model.to(device)
         model.train()
+        model = model.to(device)     
               
     elif args.model =='croco_catseg':
         from models.croco.croco import CroCoNet
@@ -153,7 +163,6 @@ def run(settings, args):
             # for crocoflow
             elif 'head' in name:    
                 param.requires_grad = True
-
             else:
                 param.requires_grad = False
     else:

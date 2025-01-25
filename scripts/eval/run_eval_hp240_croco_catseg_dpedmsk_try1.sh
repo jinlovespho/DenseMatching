@@ -31,5 +31,6 @@ for epoch in 20; do
         --wandb_proj_name matching_dped \
         --wandb_exp_name server8_pho${CUDA}_EVAL_CVPR2025REBUTTAL_hp240_dpedmsk_img224_bs12_lr1e3_croco_catseg_freezeCrocoAll_try1_CroCoNet_ep00${epoch} \
         --wandb_log_img \
+        --output_correlation attn_map \
 
 done

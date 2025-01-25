@@ -1,5 +1,6 @@
 #!/bin/bash
-CUDA=5
+
+CUDA=0
 BATCH_SIZE=12
 
 DATA_ARGS="
@@ -10,29 +11,31 @@ TRAIN_ARGS="
     --seed 1997 \
     --img_size 224 224 \
     --batch_size ${BATCH_SIZE} \
-    --lr 2e-5 \
+    --lr 1e-4 \
     --max_epoch 100 \
 "
-# --img_size 224 224 
-# --img_size 512 512 
 MODEL_ARGS="
-    --model crocoflow \
-    --croco_ckpt ./pretrained_weights/crocoflow.pth \
-    --freeze croco_enc \
+    --model croco_catseg \
+    --croco_ckpt ./pretrained_weights/CroCo_V2_ViTLarge_BaseDecoder.pth \
+    --output_flow_interp \
+    --output_ca_map \
+    --softmax_camap \
+    --correlation \
+    --reciprocity \
+    --freeze croco_all \
 "
 # --freeze none     # full fine tuning
 # --freeze croco_enc    # freeze only croco encoder
 # --freeze croco_all    # freeze all croco parameters but the aggregator
 LOG_ARGS="
-    --log_tool wandb \
+    --log_tool wandba \
     --wandb_path ./ \
     --wandb_proj_name matching_dped \
-    --wandb_exp_name pho${CUDA}_TRAIN_dpedmsk_img224_bs${BATCH_SIZE}_lr2e5_crocoflow_finetuning_freezeCrocoEnc \
+    --wandb_exp_name server8_pho${CUDA}_TRAIN_CVPR2025REBUTTAL_dpedmsk_img224_bs${BATCH_SIZE}_lr1e4_croco_catseg_freezeCrocoAll_try3 \
 "
 ETC_ARGS="
-
+    --output_correlation enc_feat \
 "
-# --multi_gpu
 
 CUDA_VISIBLE_DEVICES=${CUDA} python run_training.py 'croco' 'train_croco_static_stage1' \
                                                                                     ${DATA_ARGS} \
@@ -40,3 +43,5 @@ CUDA_VISIBLE_DEVICES=${CUDA} python run_training.py 'croco' 'train_croco_static_
                                                                                     ${MODEL_ARGS} \
                                                                                     ${LOG_ARGS} \
                                                                                     ${ETC_ARGS}
+
+

@@ -6,7 +6,6 @@
 **/*.pth
 **qsublogs
 **qsub_logs
-admin/local.py
 
 # JLP
 pretrained_weights/

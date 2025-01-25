@@ -82,6 +82,7 @@ def main():
     # model_args
     parser.add_argument('--model', type=str, default='crocoflow')
     parser.add_argument('--croco_ckpt', type=str, default=None)
+    parser.add_argument('--crocoflow_ckpt', type=str, default=None)
     parser.add_argument('--freeze', type=str, default='none')
 
     parser.add_argument('--output_flow_interp', action='store_true', help='Output flow interpolation')
@@ -101,7 +102,7 @@ def main():
     parser.add_argument('--multi_gpu', action='store_true', help='Multi GPU')   # default is False
     
     # output corr args 
-    parser.add_argument('--output_correlation', type=str, default='attn_map', help='Output correlation')
+    parser.add_argument('--output_correlation', type=str, default=None, help='Output correlation')
 
     # dped_coco_megadepth stage2 training 
     parser.add_argument('--path_to_pre_trained_models', type=str, help='Path to the stage1 pre-trained models')

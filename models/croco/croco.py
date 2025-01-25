@@ -419,6 +419,9 @@ class CroCoNet(nn.Module):
         if self.output_correlation == 'enc_feat':
             feats1, feats2 = feat_targets, feat_sources
             
+            feats1 = [feats1[i] for i in range(len(feats1)) if i%2==0]
+            feats2 = [feats2[i] for i in range(len(feats2)) if i%2==0]
+            
             l2norm = FeatureL2Norm() 
             feats1 = [l2norm(feat.detach().permute(0,2,1)).permute(0,2,1) for feat in feats1]
             feats2 = [l2norm(feat.detach().permute(0,2,1)).permute(0,2,1) for feat in feats2] 

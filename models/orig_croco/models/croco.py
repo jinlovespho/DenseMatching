@@ -33,9 +33,12 @@ class CroCoNet(nn.Module):
                  norm_layer=partial(nn.LayerNorm, eps=1e-6),
                  norm_im2_in_dec=True,   # whether to apply normalization of the 'memory' = (second image) in the decoder 
                  pos_embed='cosine',     # positional embedding (either cosine or RoPE100)
+                 args=None,
                 ):
                 
         super(CroCoNet, self).__init__()
+        
+        self.args = args 
                 
         # patch embeddings  (with initialization done as in MAE)
         self._set_patch_embed(img_size, patch_size, enc_embed_dim)
@@ -98,7 +101,7 @@ class CroCoNet(nn.Module):
         self.decoder_embed = nn.Linear(enc_embed_dim, dec_embed_dim, bias=True)
         # transformer for the decoder 
         self.dec_blocks = nn.ModuleList([
-            DecoderBlock(dec_embed_dim, dec_num_heads, mlp_ratio=mlp_ratio, qkv_bias=True, norm_layer=norm_layer, norm_mem=norm_im2_in_dec, rope=self.rope)
+            DecoderBlock(dec_embed_dim, dec_num_heads, mlp_ratio=mlp_ratio, qkv_bias=True, norm_layer=norm_layer, norm_mem=norm_im2_in_dec, rope=self.rope, args=self.args)
             for i in range(dec_depth)])
         # final norm layer 
         self.dec_norm = norm_layer(dec_embed_dim)
@@ -187,17 +190,19 @@ class CroCoNet(nn.Module):
         # apply Transformer blocks
         out = f1_
         out2 = f2 
+        other_outs=[]
         if return_all_blocks:
             _out, out = out, []
             for blk in self.dec_blocks:
-                _out, out2 = blk(_out, out2, pos1, pos2)
+                _out, out2, other_out = blk(_out, out2, pos1, pos2)
                 out.append(_out)
+                other_outs.append(other_out)
             out[-1] = self.dec_norm(out[-1])
         else:
             for blk in self.dec_blocks:
                 out, out2 = blk(out, out2, pos1, pos2)
             out = self.dec_norm(out)
-        return out
+        return out, other_outs
 
     def patchify(self, imgs):
         """

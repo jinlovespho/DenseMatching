@@ -93,12 +93,13 @@ def run(settings, args):
         head.num_channels = num_channels
         print('croco_args:', crocoflow_ckpt['args'].croco_args)
         croco_args = crocoflow_ckpt['args'].croco_args
+        croco_args['args'] = args
         model = CroCoDownstreamBinocular(head, **croco_args)
         msg = model.load_state_dict(crocoflow_ckpt['model'], strict=False)
         print('CROCO WEIGHT WELL LOADED: ', msg)
         model.train()
         model = model.to(device)        
-
+        
     elif args.model =='croco_catseg':
         from models.croco.croco import CroCoNet
         from models.croco.croco_downstream import croco_args_from_ckpt

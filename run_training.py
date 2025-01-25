@@ -106,6 +106,9 @@ def main():
 
     # dped_coco_megadepth stage2 training 
     parser.add_argument('--path_to_pre_trained_models', type=str, help='Path to the stage1 pre-trained models')
+    
+    # CVPR2025 rebuttal args 
+    parser.add_argument('--DPT_HEAD_INPUT', type=str, default='DECODER_feature', help='DPT head input')
 
     args = parser.parse_args()
 

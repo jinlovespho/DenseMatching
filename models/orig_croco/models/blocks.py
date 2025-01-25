@@ -131,8 +131,11 @@ class Block(nn.Module):
 
 class CrossAttention(nn.Module):
     
-    def __init__(self, dim, rope=None, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0.):
+    def __init__(self, dim, rope=None, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0., args=None):
         super().__init__()
+        
+        self.args = args
+        
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5
@@ -158,6 +161,13 @@ class CrossAttention(nn.Module):
         if self.rope is not None:
             q = self.rope(q, qpos)
             k = self.rope(k, kpos)
+        
+        if self.args.DPT_HEAD_INPUT == 'query_feature':
+            other_out = query.clone().detach()              # b 196 768
+        elif self.args.DPT_HEAD_INPUT == 'key_feature':
+            other_out = key.clone().detach()                # b 196 768
+        else:
+            other_out = None
             
         attn = (q @ k.transpose(-2, -1)) * self.scale
         attn = attn.softmax(dim=-1)
@@ -165,17 +175,21 @@ class CrossAttention(nn.Module):
 
         x = (attn @ v).transpose(1, 2).reshape(B, Nq, C)
         x = self.proj(x)
-        x = self.proj_drop(x)
-        return x
+        x = self.proj_drop(x)                               # b 196 768
+        
+        return x, other_out
 
 class DecoderBlock(nn.Module):
 
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, norm_mem=True, rope=None):
+                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, norm_mem=True, rope=None, args=None):
         super().__init__()
+        
+        self.args=args
+        
         self.norm1 = norm_layer(dim)
         self.attn = Attention(dim, rope=rope, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
-        self.cross_attn = CrossAttention(dim, rope=rope, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
+        self.cross_attn = CrossAttention(dim, rope=rope, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop, args=self.args)
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         self.norm3 = norm_layer(dim)
@@ -186,9 +200,10 @@ class DecoderBlock(nn.Module):
     def forward(self, x, y, xpos, ypos):
         x = x + self.drop_path(self.attn(self.norm1(x), xpos))
         y_ = self.norm_y(y)
-        x = x + self.drop_path(self.cross_attn(self.norm2(x), y_, y_, xpos, ypos))
+        tmp, other_out = self.cross_attn(self.norm2(x), y_, y_, xpos, ypos)
+        x = x + self.drop_path(tmp)
         x = x + self.drop_path(self.mlp(self.norm3(x)))
-        return x, y
+        return x, y, other_out
         
         
 # patch embedding

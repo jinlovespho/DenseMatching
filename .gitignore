@@ -8,7 +8,8 @@
 **qsub_logs
 
 # JLP
-pretrained_weights/
+!pretrained_weights/download_croco_weights.sh
+!pretrained_weights/download_model.sh
 vis/
 **.jpg
 **.png

@@ -120,6 +120,7 @@ def run(settings, args):
         head.num_channels = num_channels
         print('croco_args:', crocoflow_ckpt['args'].croco_args)
         croco_args = crocoflow_ckpt['args'].croco_args
+        croco_args['args'] = args
         model = CroCoDownstreamBinocular(head, **croco_args)
         msg = model.load_state_dict(crocoflow_ckpt['model'], strict=False)
         if dist.get_rank() == 0:

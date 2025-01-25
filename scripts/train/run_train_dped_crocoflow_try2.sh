@@ -1,11 +1,10 @@
 #!/bin/bash
 
-CUDA=3
+CUDA=0
 BATCH_SIZE=12
 
-# try1: training crocoflow on DPED from crocov2 ckpt instead of crocoflow ckpt
-# and also using DECODER feature as input the DPT head 
-
+# try2: training crocoflow on DPED from crocov2 ckpt instead of crocoflow ckpt
+# and also using QUERY feature as input the DPT head 
 
 for model in crocoflow; do
     for learning_rate in 1e-4; do
@@ -27,15 +26,16 @@ for model in crocoflow; do
             --croco_ckpt ./pretrained_weights/CroCo_V2_ViTLarge_BaseDecoder.pth \
             --crocoflow_ckpt ./pretrained_weights/crocoflow.pth \
             --freeze croco_all \
+            --DPT_HEAD_INPUT query_feature \
         "
         # --freeze none     # full fine tuning
         # --freeze croco_enc    # freeze only croco encoder
         # --freeze croco_all    # freeze all croco parameters but the aggregator
         LOG_ARGS="
-            --log_tool wandb \
+            --log_tool wandba \
             --wandb_path ./ \
             --wandb_proj_name matching_dped \
-            --wandb_exp_name server5_pho${CUDA}_TRAIN_CVPR2025REBUTTAL_dpedmsk_img224_bs${BATCH_SIZE}_lr${learning_rate}_${model}_freezeCrocoAll_try1 \
+            --wandb_exp_name server5_pho${CUDA}_TRAIN_CVPR2025REBUTTAL_dpedmsk_img224_bs${BATCH_SIZE}_lr${learning_rate}_${model}_freezeCrocoAll_try2 \
         "
         ETC_ARGS="
 

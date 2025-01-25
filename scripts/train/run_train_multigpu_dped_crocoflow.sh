@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CUDA="1"
+CUDA="0"
 BATCH_SIZE=64
 NPROC_PER_NODE=1
 
@@ -23,7 +23,6 @@ for model in crocoflow; do
         "
         MODEL_ARGS="
             --model ${model} \
-            --croco_ckpt ./pretrained_weights/CroCo_V2_ViTLarge_BaseDecoder.pth \
             --crocoflow_ckpt ./pretrained_weights/crocoflow.pth \
             --freeze croco_all \
         "
@@ -34,7 +33,7 @@ for model in crocoflow; do
             --log_tool wandb \
             --wandb_path ./ \
             --wandb_proj_name matching_dped \
-            --wandb_exp_name server5_pho${CUDA}_TRAIN_CVPR2025REBUTTAL_dpedmsk_img224_bs${BATCH_SIZE}_lr${learning_rate}_${model}_freezeCrocoAll_try1 \
+            --wandb_exp_name server5_pho${CUDA}_TRAIN_CVPR2025REBUTTAL_dpedmsk_img224_bs${BATCH_SIZE}_lr${learning_rate}_${model}_freezeCrocoAll \
         "
         ETC_ARGS="
             --multi_gpu \

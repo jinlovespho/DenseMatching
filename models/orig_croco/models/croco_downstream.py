@@ -114,9 +114,19 @@ class CroCoDownstreamBinocular(CroCoNet):
         img_info = {'height': H, 'width': W}
         return_all_blocks = hasattr(self.head, 'return_all_blocks') and self.head.return_all_blocks
         out, out2, pos, pos2 = self.encode_image_pairs(img1, img2, return_all_blocks=return_all_blocks)
-        if return_all_blocks:
-            decout = self._decoder(out[-1], pos, None, out2, pos2, return_all_blocks=return_all_blocks)
-            decout = out+decout
+        if return_all_blocks:   # t
+            decout, other_outs = self._decoder(out[-1], pos, None, out2, pos2, return_all_blocks=return_all_blocks)
+            
+            if self.args.DPT_HEAD_INPUT == 'query_feature':
+                print(f'Input to DPT head: {self.args.DPT_HEAD_INPUT}')
+                decout = out+other_outs
+            elif self.args.DPT_HEAD_INPUT == 'key_feature':
+                print(f'Input to DPT head: {self.args.DPT_HEAD_INPUT}')
+                decout = out+other_outs
+            else:
+                print(f'Input to DPT head: {self.args.DPT_HEAD_INPUT}')
+                decout = out+decout
         else:
             decout = self._decoder(out, pos, None, out2, pos2, return_all_blocks=return_all_blocks)
+            
         return self.head(decout, img_info)

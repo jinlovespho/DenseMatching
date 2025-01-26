@@ -110,6 +110,7 @@ def main():
     # CVPR2025 rebuttal args 
     parser.add_argument('--DPT_HEAD_INPUT', type=str, default='DECODER_feature', help='DPT head input')
     parser.add_argument('--without_catseg_up', action='store_true', help='Without catseg up')
+    parser.add_argument('--num_catseg_blocks', type=int, default=2, help='Number of catseg blocks')
 
     args = parser.parse_args()
 

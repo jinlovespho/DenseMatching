@@ -1,0 +1,58 @@
+#!/bin/bash
+
+CUDA="0,1,2"
+BATCH_SIZE=8
+NPROC_PER_NODE=3
+DATA_ARGS="
+    --dataset dped \
+    --apply_coco_msk \
+"
+TRAIN_ARGS="
+    --seed 1997 \
+    --img_size 224 224 \
+    --batch_size ${BATCH_SIZE} \
+    --lr 5e-5 \
+    --max_epoch 100 \
+"
+MODEL_ARGS="
+    --model croco_catseg \
+    --croco_ckpt ./pretrained_weights/CroCo_V2_ViTLarge_BaseDecoder.pth \
+    --output_flow_interp \
+    --output_ca_map \
+    --softmax_camap \
+    --correlation \
+    --reciprocity \
+    --freeze croco_all \
+"
+# --freeze none     # full fine tuning
+# --freeze croco_enc    # freeze only croco encoder
+# --freeze croco_all    # freeze all croco parameters but the aggregator
+LOG_ARGS="
+    --log_tool wandb \
+    --wandb_path ./ \
+    --wandb_proj_name matching_dped \
+    --wandb_exp_name server8_pho${CUDA}_TRAIN_CVPR2025REBUTTAL_dpedmsk_img224_bs${BATCH_SIZE}_lr5e-5_croco_catseg_freezeCrocoAll_moreCatsegBlocks4 \
+"
+ETC_ARGS="
+    --multi_gpu \
+    --num_catseg_blocks 4 \
+"
+
+CUDA_VISIBLE_DEVICES=${CUDA} \
+    torchrun --standalone --nproc_per_node=${NPROC_PER_NODE} run_training.py 'croco' 'train_croco_static_stage1_multigpu' \
+    ${DATA_ARGS} \
+    ${TRAIN_ARGS} \
+    ${MODEL_ARGS} \
+    ${LOG_ARGS} \
+    ${ETC_ARGS}
+
+
+
+# CUDA_VISIBLE_DEVICES=${CUDA} NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=ALL torchrun --standalone --nproc_per_node=${NPROC_PER_NODE} run_training.py 'croco' 'train_croco_static_ddp' \
+#                                                                                             ${DATA_ARGS} \
+#                                                                                             ${TRAIN_ARGS} \
+#                                                                                             ${MODEL_ARGS} \
+#                                                                                             ${LOG_ARGS} \
+#                                                                                             ${ETC_ARGS}
+
+

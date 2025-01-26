@@ -372,7 +372,7 @@ class MultiscaleBlock(nn.Module):
 
 class TransformerAggregator(nn.Module):
     def __init__(self, num_hyperpixel, dim, img_size=224, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4., qkv_bias=True, qk_scale=None,
-                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=None):
+                 drop_rate=0., attn_drop_rate=0., drop_path_rate=0., norm_layer=None, args=None):
         super().__init__()
         self.img_size = img_size
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
@@ -381,6 +381,7 @@ class TransformerAggregator(nn.Module):
         self.pos_embed_x = nn.Parameter(torch.zeros(1, num_hyperpixel, 1, img_size, (embed_dim+dim) // 2))
         self.pos_embed_y = nn.Parameter(torch.zeros(1, num_hyperpixel, img_size, 1, (embed_dim+dim) // 2))
         self.pos_drop = nn.Dropout(p=drop_rate)
+        self.num_catseg_blocks = args.num_catseg_blocks
 
         
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
@@ -388,7 +389,8 @@ class TransformerAggregator(nn.Module):
             MultiscaleBlock(
                 dim=dim, embed_dim = embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, img_size=img_size, num_hyperpixel=num_hyperpixel)
-            for i in range(2)])
+            for i in range(self.num_catseg_blocks)])
+        # breakpoint()
         self.proj = nn.Linear(embed_dim+dim, img_size ** 2)
         self.norm = norm_layer(embed_dim)
 
@@ -497,7 +499,7 @@ class CATs_SWIN_Decoder(nn.Module):
         self.decoder = TransformerAggregator(
             img_size=self.feature_size, dim = self.feature_size**2, embed_dim=self.feature_proj_dim, depth=depth, num_heads=num_heads,
             mlp_ratio=mlp_ratio, qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6),
-            num_hyperpixel=len(hyperpixel_ids))
+            num_hyperpixel=len(hyperpixel_ids), args=args)
             
         self.l2norm = FeatureL2Norm()
     

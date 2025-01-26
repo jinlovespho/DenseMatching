@@ -274,6 +274,7 @@ if __name__ == "__main__":
     # JLP
     # parser.add_argument('--path_to_pre_trained_models', type=str, help='path to pre-trained models')
     parser.add_argument('--croco_ckpt', type=str, help='path to pretrained crocoflow checkpoint')
+    parser.add_argument('--crocoflow_ckpt', type=str, default=None)
     parser.add_argument('--log_tool', type=str, help='log tool')
     parser.add_argument('--wandb_path', type=str, help='wandb path')
     parser.add_argument('--wandb_proj_name', type=str, help='wandb project name')
@@ -296,6 +297,10 @@ if __name__ == "__main__":
     # inference 
     parser.add_argument('--dense_zoom_in', action='store_true', help='dense zoom in default is False')
     parser.add_argument('--dense_zoom_ratio', nargs='+', type=int, help='dense zoom ratio')
+
+    # CVPR2025 rebuttal args 
+    parser.add_argument('--DPT_HEAD_INPUT', type=str, default='DECODER_feature', help='DPT head input')
+
 
     args = parser.parse_args()
     local_optim_iter = int(args.local_optim_iter) if args.local_optim_iter else args.optim_iter

@@ -198,7 +198,10 @@ def run(settings, args):
     if args.model == 'crocoflow':
         weights_level_loss = [0.32]
     elif args.model == 'croco_catseg':
-        weights_level_loss = [0.32, 0.32]
+        if args.without_catseg_up:
+            weights_level_loss = [0.32]
+        else: 
+            weights_level_loss = [0.32, 0.32]
     loss_module = MultiScaleFlow(level_weights=weights_level_loss, loss_function=objective, downsample_gt_flow=True)
 
     # 6. Define actor
@@ -225,7 +228,7 @@ def run(settings, args):
     train_val_loader = [train_loader, val_loader]
     # 9. Define Trainer
     trainer = MatchingTrainer(GLUNetActor, train_val_loader, optimizer, settings, lr_scheduler=scheduler, args=args)
-    trainer.train(settings.n_epochs, load_latest=False, fail_safe=True)
+    trainer.train(settings.n_epochs, load_latest=True, fail_safe=True)
 
 
 

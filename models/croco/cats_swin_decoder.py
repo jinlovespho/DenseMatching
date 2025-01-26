@@ -478,6 +478,7 @@ class CATs_SWIN_Decoder(nn.Module):
         self.feature_size = feature_size
         self.feature_proj_dim = feature_proj_dim
         self.decoder_embed_dim = self.feature_size + self.feature_proj_dim
+        self.without_catseg_up = args.without_catseg_up
 
         channels = [768]*12
         if self.correlation:
@@ -513,16 +514,20 @@ class CATs_SWIN_Decoder(nn.Module):
         decoder_dims = (64,32)
         
         
-        ## CAT-Seg Decoder
-        self.decoder_guidance_projection = nn.ModuleList([
-            nn.Sequential(
-                nn.Conv2d(d, dp, kernel_size=3, stride=1, padding=1),
-                nn.ReLU(),
-            ) for d, dp in zip(decoder_guidance_dims, decoder_guidance_proj_dims)
-        ])
-        self.decoder1 = Up(len(hyperpixel_ids), decoder_dims[0], decoder_guidance_proj_dims[0], intermediate_dim=16)
-        self.decoder2 = Up(decoder_dims[0], decoder_dims[1], decoder_guidance_proj_dims[1], intermediate_dim=32)
-        self.head = nn.Conv2d(decoder_dims[1], 1, kernel_size=3, stride=1, padding=1)
+        # cvpr2025 rebut
+        if self.without_catseg_up:
+            pass 
+        else:
+            ## CAT-Seg Decoder
+            self.decoder_guidance_projection = nn.ModuleList([
+                nn.Sequential(
+                    nn.Conv2d(d, dp, kernel_size=3, stride=1, padding=1),
+                    nn.ReLU(),
+                ) for d, dp in zip(decoder_guidance_dims, decoder_guidance_proj_dims)
+            ])
+            self.decoder1 = Up(len(hyperpixel_ids), decoder_dims[0], decoder_guidance_proj_dims[0], intermediate_dim=16)
+            self.decoder2 = Up(decoder_dims[0], decoder_dims[1], decoder_guidance_proj_dims[1], intermediate_dim=32)
+            self.head = nn.Conv2d(decoder_dims[1], 1, kernel_size=3, stride=1, padding=1)
 
         ## Uncertainty
         if self.uncertainty:
@@ -701,6 +706,10 @@ class CATs_SWIN_Decoder(nn.Module):
             coarse_flow[:, 0] *= float(output_shape[1]) / float(w)
             coarse_flow[:, 1] *= float(output_shape[0]) / float(h)
             
+        # breakpoint()
+        if self.without_catseg_up: 
+            return [coarse_flow]
+        
         refined_corr = refined_corr.transpose(-1,-2).view(B, -1, self.feature_size, self.feature_size)
         appearance_feature[0] = appearance_feature[0].permute(0,2,1).reshape(B, -1, self.feature_size, self.feature_size)
         appearance_feature[1] = appearance_feature[1].permute(0,2,1).reshape(B, -1, self.feature_size, self.feature_size)

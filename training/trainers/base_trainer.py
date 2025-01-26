@@ -67,6 +67,8 @@ class BaseTrainer:
             load_latest - Bool indicating whether to resume from latest epoch.
             fail_safe - Bool indicating whether the training to automatically restart in case of any crashes.
         """
+        
+        SAVE_EPOCH_FREQ = 10
 
         self.just_started = True
         epoch = -1
@@ -96,13 +98,15 @@ class BaseTrainer:
                                 self.best_val = self.current_best_val
                                 self.epoch_of_best_val = self.epoch
 
-                                self.save_checkpoint(name='model_best')
+                                if epoch % SAVE_EPOCH_FREQ == 0:
+                                    self.save_checkpoint(name='model_best')
 
                             self.just_started = False  # to enable resampling of dataset item at the next epoch
                             # save checkpoint
                             if self._base_save_dir:
-                                self.save_checkpoint()
-                                self.delete_old_checkpoints()  # keep only the most recent set of checkpoints
+                                if epoch % SAVE_EPOCH_FREQ == 0:
+                                    self.save_checkpoint()
+                                    self.delete_old_checkpoints()  # keep only the most recent set of checkpoints
                     else:
                         # save best checkpoint
                         if self.current_best_val is not None and self.current_best_val < self.best_val:
@@ -112,13 +116,15 @@ class BaseTrainer:
                             self.best_val = self.current_best_val
                             self.epoch_of_best_val = self.epoch
 
-                            self.save_checkpoint(name='model_best')
+                            if epoch % SAVE_EPOCH_FREQ == 0:
+                                self.save_checkpoint(name='model_best')
 
                         self.just_started = False  # to enable resampling of dataset item at the next epoch
                         # save checkpoint
                         if self._base_save_dir:
-                            self.save_checkpoint()
-                            self.delete_old_checkpoints()  # keep only the most recent set of checkpoints
+                            if epoch % SAVE_EPOCH_FREQ == 0:
+                                self.save_checkpoint()
+                                self.delete_old_checkpoints()  # keep only the most recent set of checkpoints
 
 
             except:
@@ -205,15 +211,15 @@ class BaseTrainer:
                 Loads the file from the given absolute path (str).
         """
 
-        net = self.actor.net.module if multigpu.is_multi_gpu(self.actor.net) else self.actor.net
+        # net = self.actor.net.module if multigpu.is_multi_gpu(self.actor.net) else self.actor.net
+        net = self.actor.net.module if self.args.multi_gpu else self.actor.net
 
         actor_type = type(self.actor).__name__
         net_type = type(net).__name__
 
         if checkpoint is None:
             # Load most recent checkpoint
-            checkpoint_list = sorted(glob.glob('{}/{}/{}_ep*.pth.tar'.format(self._base_save_dir,
-                                                                             self.settings.project_path, net_type)))
+            checkpoint_list = sorted(glob.glob(f'{self._base_save_dir}/{self.settings.project_path}/{net_type}_ep*.pth.tar'))
             if checkpoint_list:
                 checkpoint_path = checkpoint_list[-1]
             else:

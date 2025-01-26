@@ -221,49 +221,90 @@ def select_model(model_name, pre_trained_model_type, args, global_optim_iter, lo
         # similar to original work, we use softargmax as the inference_strategy. This is because the kp loss is the
         # EPE after applying softargmax.
         network = CATs(forward_pass_strategy='flow_prediction', inference_strategy='softargmax')
-    # JLP
+    
     elif model_name == 'crocoflow':
-        from models.orig_croco.models.croco_downstream import CroCoDownstreamBinocular
+        from models.orig_croco.models.croco_downstream import CroCoDownstreamBinocular, croco_args_from_ckpt
         from models.orig_croco.models.head_downstream import PixelwiseTaskWithDPT
-        from models.orig_croco.models.pos_embed import interpolate_pos_embed
 
-        estimate_uncertainty = True
-        weights_already_loaded = True
+        estimate_uncertainty = False
+        weights_already_loaded = False 
 
-        model_path = args.croco_ckpt
-
-        print('Loading croco model from: ', model_path)
-        assert os.path.isfile(model_path)
-        ckpt = torch.load(model_path, 'cpu')
+        # finetune crocoflow on DPED from crocov2 ckpt
+        if args.croco_ckpt is not None:
+            croco_ckpt = torch.load(args.croco_ckpt, 'cpu')
+            crocoflow_ckpt = torch.load(args.crocoflow_ckpt, 'cpu')
+            crocoflow_ckpt['args'].croco_args['img_size'] = [224,224]   # 224 224  
+            crocoflow_ckpt['args'].crop = [224,224]                 # 224 224 
+            crocoflow_ckpt['model'] = croco_ckpt['model']
+            
+        # finetune crocoflow on DPED from crocoflow ckpt
+        else:
+            crocoflow_ckpt = torch.load(args.crocoflow_ckpt, 'cpu')
         
-        ckpt_args = ckpt['args']
-        task = ckpt_args.task   # 'flow'
-        tile_conf_mode = ckpt_args.tile_conf_mode   # tile_conf_mode='conf_expsigmoid_10_5'
-        num_channels = {'stereo': 1, 'flow': 2}[task]   # num_channels=1 for stereo, num_channels=2 for flow
-        # with_conf =  eval(ckpt_args.criterion).with_conf
-        # if with_conf: num_channels += 1
+        # ckpt = torch.load(args.croco_ckpt, 'cpu')   # crocoflow.pth
+        # ckpt_args = ckpt['args'] if 'args' in ckpt.keys() else ckpt['croco_kwargs']
+        # ckpt_args.croco_args['img_size'] = args.img_size if args.img_size is not None else [320, 384]
+        task = crocoflow_ckpt['args'].task   # 'flow'
+        num_channels = {'stereo': 1, 'flow': 2}[task]   # 2
+        with_conf = True
+        if with_conf: num_channels += 1
         print('head: PixelwiseTaskWithDPT()')
         head = PixelwiseTaskWithDPT()
+        head.num_channels = num_channels
+        print('croco_args:', crocoflow_ckpt['args'].croco_args)
+        croco_args = crocoflow_ckpt['args'].croco_args
+        croco_args['args'] = args
+        model = CroCoDownstreamBinocular(head, **croco_args)
+        msg = model.load_state_dict(crocoflow_ckpt['model'], strict=False)
+        print('CROCO WEIGHT WELL LOADED: ', msg)
+        network = model 
+        network.eval() 
+        network = network.to(device)    
+    
+    
+    # # JLP
+    # elif model_name == 'crocoflow':
+    #     from models.orig_croco.models.croco_downstream import CroCoDownstreamBinocular
+    #     from models.orig_croco.models.head_downstream import PixelwiseTaskWithDPT
+    #     from models.orig_croco.models.pos_embed import interpolate_pos_embed
 
-        if estimate_uncertainty:
-            head.num_channels = num_channels + 1  # +1 for conf
-        else:
-            head.num_channels = num_channels
+    #     estimate_uncertainty = True
+    #     weights_already_loaded = True
 
-        # if args.eval_img_size is not None:
-        #     # resize croco patch embedding shape according to input image size
-        #     ckpt_args.croco_args['img_size'] = args.eval_img_size
+    #     model_path = args.croco_ckpt
 
-        print('ckpt_args.croco_args:', ckpt_args.croco_args)
-        args.croco_args = ckpt_args.croco_args  # add croco_args to args
+    #     print('Loading croco model from: ', model_path)
+    #     assert os.path.isfile(model_path)
+    #     ckpt = torch.load(model_path, 'cpu')
+        
+    #     ckpt_args = ckpt['args']
+    #     task = ckpt_args.task   # 'flow'
+    #     tile_conf_mode = ckpt_args.tile_conf_mode   # tile_conf_mode='conf_expsigmoid_10_5'
+    #     num_channels = {'stereo': 1, 'flow': 2}[task]   # num_channels=1 for stereo, num_channels=2 for flow
+    #     # with_conf =  eval(ckpt_args.criterion).with_conf
+    #     # if with_conf: num_channels += 1
+    #     print('head: PixelwiseTaskWithDPT()')
+    #     head = PixelwiseTaskWithDPT()
 
-        network = CroCoDownstreamBinocular(head, **ckpt_args.croco_args)
-        interpolate_pos_embed(network, ckpt['model'])   # only works for crocov1 absolute pos embedding. since we're using ROPE it doesnt do anything
-        msg = network.load_state_dict(ckpt['model'], strict=True)
-        network.eval()
-        network = network.to(device)
+    #     if estimate_uncertainty:
+    #         head.num_channels = num_channels + 1  # +1 for conf
+    #     else:
+    #         head.num_channels = num_channels
 
-        print('CROCOFLOW WEIGHT WELL LOADED: ', msg)
+    #     # if args.eval_img_size is not None:
+    #     #     # resize croco patch embedding shape according to input image size
+    #     #     ckpt_args.croco_args['img_size'] = args.eval_img_size
+
+    #     print('ckpt_args.croco_args:', ckpt_args.croco_args)
+    #     args.croco_args = ckpt_args.croco_args  # add croco_args to args
+
+    #     network = CroCoDownstreamBinocular(head, **ckpt_args.croco_args)
+    #     interpolate_pos_embed(network, ckpt['model'])   # only works for crocov1 absolute pos embedding. since we're using ROPE it doesnt do anything
+    #     msg = network.load_state_dict(ckpt['model'], strict=True)
+    #     network.eval()
+    #     network = network.to(device)
+
+    #     print('CROCOFLOW WEIGHT WELL LOADED: ', msg)
         
     elif model_name == 'croco_hierarchical_conv4d_cats_level_4stage':
         from models.croco.croco import CroCoNet

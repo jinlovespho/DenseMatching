@@ -118,13 +118,13 @@ class CroCoDownstreamBinocular(CroCoNet):
             decout, other_outs = self._decoder(out[-1], pos, None, out2, pos2, return_all_blocks=return_all_blocks)
             
             if self.args.DPT_HEAD_INPUT == 'query_feature':
-                print(f'Input to DPT head: {self.args.DPT_HEAD_INPUT}')
+                # print(f'Input to DPT head: {self.args.DPT_HEAD_INPUT}')
                 decout = out+other_outs
             elif self.args.DPT_HEAD_INPUT == 'key_feature':
-                print(f'Input to DPT head: {self.args.DPT_HEAD_INPUT}')
+                # print(f'Input to DPT head: {self.args.DPT_HEAD_INPUT}')
                 decout = out+other_outs
             else:
-                print(f'Input to DPT head: {self.args.DPT_HEAD_INPUT}')
+                # print(f'Input to DPT head: {self.args.DPT_HEAD_INPUT}')
                 decout = out+decout
         else:
             decout = self._decoder(out, pos, None, out2, pos2, return_all_blocks=return_all_blocks)

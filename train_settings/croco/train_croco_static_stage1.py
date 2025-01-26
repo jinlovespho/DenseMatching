@@ -168,7 +168,10 @@ def run(settings, args):
     if args.model == 'crocoflow':
         weights_level_loss = [0.32]
     elif args.model == 'croco_catseg':
-        weights_level_loss = [0.32, 0.32]
+        if args.without_catseg_up:
+            weights_level_loss = [0.32]
+        else: 
+            weights_level_loss = [0.32, 0.32]
     loss_module = MultiScaleFlow(level_weights=weights_level_loss, loss_function=objective, downsample_gt_flow=True)
 
     # 6. Define actor

@@ -388,9 +388,13 @@ def run_evaluation_generic(network, test_dataloader, device, estimate_uncertaint
                         flow_est[:,0,:,:] *= W_orig/W_224                # 1 2 240 240
                         flow_est[:,1,:,:] *= H_orig/H_224                # 1 2 240 240       
 
-
-                elif args.model == 'future croco models':
-                    pass
+                elif args.model == 'crocoflow':
+                    output_flow = network(target_img, source_img)  # b 3 predflow_h predflow_w
+                    flow_est = output_flow[:,:-1,:,:]
+                    conf = output_flow[:,-1,:,:]
+                    flow_est = F.interpolate(flow_est, size=(H_orig, W_orig), mode='bilinear', align_corners=False).to(device)
+                    flow_est[:,0,:,:] *= W_orig/W_224                # 1 2 240 240
+                    flow_est[:,1,:,:] *= H_orig/H_224                # 1 2 240 240    
 
         else:
             if estimate_uncertainty:

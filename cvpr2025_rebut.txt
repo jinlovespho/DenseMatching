@@ -578,3 +578,50 @@
                 Validation EPE: 129.534621, 1px: 0.000155, 3px: 0.001474, 5px: 0.004109
                 Validation EPE: 142.724881, 1px: 0.000196, 3px: 0.001894, 5px: 0.005109
                 Validation EPE: 110.664786, 1px: 0.000317, 3px: 0.002865, 5px: 0.007765
+
+
+
+3. Ours w/o Catseg Upsampling module 
+    - HP:
+        Epoch 10: 
+            Validation EPE: 40.460934, 1px: 0.000562, 3px: 0.005119, 5px: 0.014200
+            Validation EPE: 48.171437, 1px: 0.000508, 3px: 0.004513, 5px: 0.012359
+            Validation EPE: 59.361466, 1px: 0.000471, 3px: 0.004231, 5px: 0.011759
+            Validation EPE: 64.056588, 1px: 0.000457, 3px: 0.004060, 5px: 0.011359
+            Validation EPE: 66.945425, 1px: 0.000447, 3px: 0.003961, 5px: 0.010895
+            Validation EPE: 55.799170, 1px: 0.000493, 3px: 0.004417, 5px: 0.012225
+        Epoch 20: 
+            Validation EPE: 20.044032, 1px: 0.001993, 3px: 0.026132, 5px: 0.059465
+            Validation EPE: 27.990569, 1px: 0.001763, 3px: 0.015548, 5px: 0.042960
+            Validation EPE: 39.944759, 1px: 0.001711, 3px: 0.015312, 5px: 0.042027
+            Validation EPE: 44.342476, 1px: 0.001697, 3px: 0.014828, 5px: 0.040918
+            Validation EPE: 47.718292, 1px: 0.001534, 3px: 0.013453, 5px: 0.037253
+            Validation EPE: 36.008026, 1px: 0.001754, 3px: 0.017427, 5px: 0.045191
+        Epoch 30: 
+            Validation EPE: 11.468893, 1px: 0.010439, 3px: 0.086955, 5px: 0.214768
+            Validation EPE: 18.825518, 1px: 0.008207, 3px: 0.069409, 5px: 0.173099
+            Validation EPE: 31.296429, 1px: 0.008852, 3px: 0.072578, 5px: 0.176241
+            Validation EPE: 36.967827, 1px: 0.008011, 3px: 0.066350, 5px: 0.163494
+            Validation EPE: 40.915034, 1px: 0.007233, 3px: 0.060088, 5px: 0.149708
+            Validation EPE: 27.894740, 1px: 0.008642, 3px: 0.071886, 5px: 0.177462
+        Epoch 40: 
+            Validation EPE: 7.853620, 1px: 0.031138, 3px: 0.218009, 5px: 0.442773
+            Validation EPE: 15.088624, 1px: 0.021010, 3px: 0.165249, 5px: 0.359154
+            Validation EPE: 27.767399, 1px: 0.019946, 3px: 0.158830, 5px: 0.347163
+            Validation EPE: 33.170603, 1px: 0.019061, 3px: 0.147625, 5px: 0.321050
+            Validation EPE: 36.805770, 1px: 0.016446, 3px: 0.126593, 5px: 0.278861
+            Validation EPE: 24.137203, 1px: 0.021971, 3px: 0.166155, 5px: 0.355092
+        Epoch 50: 
+            Validation EPE: 6.621033, 1px: 0.047191, 3px: 0.302285, 5px: 0.561222
+            Validation EPE: 14.104958, 1px: 0.034605, 3px: 0.239364, 5px: 0.468137
+            Validation EPE: 26.820999, 1px: 0.030513, 3px: 0.226491, 5px: 0.447099
+            Validation EPE: 31.630450, 1px: 0.029548, 3px: 0.209397, 5px: 0.414936
+            Validation EPE: 34.944904, 1px: 0.024139, 3px: 0.178177, 5px: 0.360812
+            Validation EPE: 22.824469, 1px: 0.033943, 3px: 0.235172, 5px: 0.457025
+        Epoch 60: 
+            Validation EPE: 5.827649, 1px: 0.056363, 3px: 0.359732, 5px: 0.632987
+            Validation EPE: 13.745506, 1px: 0.043304, 3px: 0.282755, 5px: 0.528185
+            Validation EPE: 26.865567, 1px: 0.038571, 3px: 0.268170, 5px: 0.500058
+            Validation EPE: 30.767217, 1px: 0.035572, 3px: 0.251136, 5px: 0.470302
+            Validation EPE: 34.391210, 1px: 0.031276, 3px: 0.213095, 5px: 0.416189
+            Validation EPE: 22.319430, 1px: 0.041856, 3px: 0.279684, 5px: 0.516673

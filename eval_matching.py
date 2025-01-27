@@ -300,6 +300,7 @@ if __name__ == "__main__":
 
     # CVPR2025 rebuttal args 
     parser.add_argument('--DPT_HEAD_INPUT', type=str, default='DECODER_feature', help='DPT head input')
+    parser.add_argument('--without_catseg_up', action='store_true', help='without catseg up default is False')
 
 
     args = parser.parse_args()

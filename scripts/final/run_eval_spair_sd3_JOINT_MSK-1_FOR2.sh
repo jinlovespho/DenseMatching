@@ -11,11 +11,11 @@ DATA_ARGS="
 
 CUDA=2
 # Loop through different stop steps
-for stop_step in 18; do
+for stop_step in 6 10 14 18 22; do
     # Loop through different feature types
-    for feat_type in mmdit_attn_3_scaleshift; do
+    for feat_type in mmdit_attn; do
         # Loop through different layers
-        for layer in 20; do
+        for layer in 11 13; do
             # Loop through different step counts
             for inf_step_count in 1; do
                 # Loop through different mask attention

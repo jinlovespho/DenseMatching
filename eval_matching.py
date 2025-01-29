@@ -235,7 +235,9 @@ if __name__ == "__main__":
     parser.add_argument('--inf_step_count', type=int, default=-1, help='step count for inference')
     
     parser.add_argument('--output_feat_type', type=str, default='', help='output feature type')
-    parser.add_argument('--output_layer', type=int, default=0, help='output layer for sd3')
+    parser.add_argument('--output_layer', type=int, default=None, help='output layer for sd3')
+    parser.add_argument('--fusion_layer', type=str, default=None, help='fusion layer for sd3')
+    parser.add_argument('--fusion_dim', type=int, default=256, help='fusion dimension for sd3')
     
     # VIS_ARGS 
     parser.add_argument('--WANDB_LOG_FREQ', type=int, default=50, help='wandb log frequency')
@@ -260,12 +262,18 @@ if __name__ == "__main__":
     parser.add_argument('--INFERENCE_FEAT_NO_SAVE', action='store_true')
     parser.add_argument('--DO_CFG', action='store_true')
     parser.add_argument('--MSK_ATTN', type=int, default=-1, help='mask attention')
+    parser.add_argument('--attn_map_head', type=str, default='mean', help='attention map head')
+    parser.add_argument('--attn_map_no_softmax', action='store_true')
+    parser.add_argument('--attn_map_filter', type=str, default='no_filter', help='attention map filter')
     
     args = parser.parse_args()
     
     # post process args
     if args.VIS_LAYER is not None:
         args.VIS_LAYER = [int(layer) for layer in args.VIS_LAYER.split(',')]
+    
+    if args.fusion_layer is not None:
+        args.fusion_layer = [int(layer) for layer in args.fusion_layer.split(',')]
     
     torch.cuda.empty_cache()
     torch.manual_seed(args.seed)

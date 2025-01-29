@@ -1477,8 +1477,8 @@ class JointAttnProcessor2_0:
         text_len = encoder_hidden_states.shape[1]   # 333
         
         # JLP - manual attention computation
-        attn_scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(head_dim)  # 1 24 4429 4429
-        attn_scores = F.softmax(attn_scores, dim=-1)                                    # 1 24 5274 5274
+        attn_scores_no_softmax = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(head_dim)  # 1 24 4429 4429
+        attn_scores = F.softmax(attn_scores_no_softmax, dim=-1)                                    # 1 24 5274 5274
         
         # MASK ATTENTION MAP
         if my_args.MSK_ATTN == -1:  # no mask
@@ -1487,45 +1487,60 @@ class JointAttnProcessor2_0:
             attn_scores[:,:, :img_len, img_len:] =0
         
         # breakpoint()
+        # extract attention maps
         if my_args.output_feat_type == 'attn_map':
-            # extract attention map 
-            attn_map = attn_scores.clone().detach().cpu()           # 2 24 2637 2637    # joint_full_attn=True: 1 24 5274 5274
-            attn_map = attn_map.mean(dim=1)                         # 2 2637 2637       # joint_full_attn=True: 1 5274 5274
-            attn_map = attn_map[0]                                  # 2637 2637         # joint_full_attn=True: 5274 5274
-            if my_args.joint_full_attn:
-                attn_map12 = attn_map[:img_len, img_len+text_len:img_len+text_len+img_len]    # 2304 2304
-                attn_map21 = attn_map[img_len+text_len:img_len+text_len+img_len, :img_len]    # 2304 2304
-                attn_map11 = attn_map[:img_len, :img_len]
-                attn_map22 = attn_map[img_len+text_len:img_len+text_len+img_len, img_len+text_len:img_len+text_len+img_len]
-                EXTRACT_FEAT = torch.stack([attn_map12, attn_map21, attn_map11, attn_map22], dim=0)  # 2 2304 2304 
-            elif my_args.model == 'sd3_joint': 
+            
+            if my_args.attn_map_no_softmax: 
+                attn_map = attn_scores_no_softmax.clone().detach().cpu()[0]   # 24 4429 4429         
+            else: 
+                attn_map = attn_scores.clone().detach().cpu()[0]   # 24 4429 4429         
+
+            # attn head process method
+            if my_args.attn_map_head == 'mean':
+                attn_map = attn_map.mean(dim=0)         # head n n -> n n 
+            elif my_args.attn_map_head == 'min':
+                attn_map = attn_map.min(dim=0).values   # head n n -> n n 
+            elif my_args.attn_map_head == 'max':
+                attn_map = attn_map.max(dim=0).values   # head n n -> n n 
+            
+                     
+            if my_args.model == 'sd3_joint': 
                 
-                if not my_args.VIS_ATTN_PROMPT:
+                if my_args.attn_map_filter == 'try1_reciprocal':
+                    img_attn_map = attn_map[:img_len, :img_len]  # 4096 4096
+                    img_attn_map12 = img_attn_map[:img_len//2, img_len//2:img_len].softmax(dim=-1)     # 2048 2048
+                    img_attn_map21 = img_attn_map[img_len//2:img_len, :img_len//2].softmax(dim=-1)       # 2048 2048
+                    
+                    conf_attn_map12 = (img_attn_map12 * img_attn_map21.transpose(-1,-2))
+                    img_attn_map12 = conf_attn_map12 * img_attn_map12
+                    
+                    EXTRACT_FEAT = torch.stack([img_attn_map12, img_attn_map21], dim=0)   # 4 2048 2048
+                    
+                    # # CROCO CODE
+                    # camap1, camap2 = attn_map, attn_map_source
+                    # camap1 = [attn.mean(dim=1) for attn in camap1]   # b 196 196
+                    # camap2 = [attn.mean(dim=1) for attn in camap2]   # avg heads
+
+                    # if self.args.heuristic_attn_map_refine:
+                    #     for i in range(len(camap1)):
+                    #         camap1[i][:,:,0]=camap1[i].min()
+                    #         camap2[i][:,:,0]=camap2[i].min()
+
+                    # camap1 = torch.stack(camap1, dim=1) # b 12 196 196
+                    # camap2 = torch.stack(camap2, dim=1)
+                    # refined_layered_corr = (camap1 + camap2.transpose(-1,-2))/2. # b 12 196 196
+                    # refined_corr = (camap1.mean(dim=1) + camap2.mean(dim=1).transpose(-1,-2))/2.    # b 196 196
+                    
+                    
+                else:
                     img_attn_map = attn_map[:img_len, :img_len]                             # 4096 4096
                     img_attn_map12 = img_attn_map[:img_len//2, img_len//2:img_len]          # [0:2048, 2048:4096]   shape: (2048, 2048)
                     img_attn_map21 = img_attn_map[img_len//2:img_len, :img_len//2]          # [2048:4096, 0:2048]  
                     img_attn_map11 = img_attn_map[:img_len//2, :img_len//2]                 # [0:2048, 0:2048]
                     img_attn_map22 = img_attn_map[img_len//2:img_len, img_len//2:img_len]   # [2048:4096, 2048:4096]
                     EXTRACT_FEAT = torch.stack([img_attn_map12, img_attn_map21, img_attn_map11, img_attn_map22], dim=0)   # 4 2048 2048
-                else:
-                    from torchvision.utils import save_image 
-                    
-                    for i in range(attn_map.shape[0]): 
-                        # tkn 4429
-                        tmp=(attn_map[i]-attn_map[i].min())/(attn_map[i].max()-attn_map[i].min())
-                        attn_map[i] = tmp
-                    save_image(attn_map, 'map_msk.png')
-                    
-                    down_map = F.interpolate(attn_map[None,None], size=(attn_map.shape[0]//16, attn_map.shape[1]//16), mode='bilinear', align_corners=False)
-                    for i in range(down_map.shape[0]): 
-                        # tkn 4429
-                        tmp=(down_map[i]-down_map[i].min())/(down_map[i].max()-down_map[i].min())
-                        down_map[i] = tmp
-                    save_image(down_map, 'map_down_msk.png')
-                    breakpoint()
-            else: 
-                EXTRACT_FEAT = attn_map[:img_len, :img_len]    # 2304 2304       
-        
+
+
         elif my_args.output_feat_type == 'query':
             feat = query.clone().detach().cpu()                 # 2 24 4429 64   
             feat = rearrange(feat, 'b h n d -> b n (h d)')      # 2 4429 1536

@@ -649,6 +649,7 @@ def print_exp_info(args):
         print(f'CURRENT TIMESTEP: {timesteps[args.inf_stop_step]}')
         print(f'OUTPUT FEATURE TYPE: {args.output_feat_type}')
         print(f'OUTPUT LAYER: {args.output_layer}')
+        print(f'FUSION LAYER: {args.fusion_layer}')
         print('-'*50)
         print(f'VIS_PCA_SINGLE_IMG: {args.VIS_PCA_SINGLE_IMG}')
         print(f'VIS_PCA_JOINT_IMG: {args.VIS_PCA_JOINT_IMG}')
@@ -1295,7 +1296,7 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                                 os.makedirs(VIS_SAVE_PATH)
                             
                             if args.log_tool == 'wandb':
-                                wandb.log({f"vis_ATTN_MAP_{img1_info['img1_cat']}_src_to_trg/point{j}_src{src_name}_trg{trg_name}_tknidx{src_point}": wandb.Image(combined_img[:,:,::-1]) })
+                                wandb.log({f"vis_ATTN_MAP_{img1_info['img1_cat']}_src_to_trg/src{src_name}_trg{trg_name}_point{j}_{src_point}": wandb.Image(combined_img[:,:,::-1]) })
                                 # breakpoint()
                             else:
                                 # Save visualization using torchvision
@@ -1372,7 +1373,7 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                                 os.makedirs(VIS_SAVE_PATH)
                             
                             if args.log_tool == 'wandb':
-                                wandb.log({f"vis_ATTN_MAP_{img1_info['img1_cat']}_trg_to_src/point{j}_src{src_name}_trg{trg_name}_tknidx{src_point}": wandb.Image(combined_img[:,:,::-1]) })
+                                wandb.log({f"vis_ATTN_MAP_{img1_info['img1_cat']}_trg_to_src/src{src_name}_trg{trg_name}_point{j}_{src_point}": wandb.Image(combined_img[:,:,::-1]) })
                                 # breakpoint()
                             else:
                                 # Save visualization using torchvision
@@ -1380,23 +1381,47 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
             
             if args.FLOW_CAMAP:
                 pass 
-            
             # visualize joint PCA
             else:
                 if not args.INFERENCE_FEAT_NO_SAVE:
                     src_ft = output_dict[data['src_imname']]
                     trg_ft = output_dict[data['trg_imname']]   
-    
-                
                 elif args.FLOW_CAMAP:
                     pass 
-                    
                 else:
-                    feat = extracted_feat[args.output_layer]    # 2 2304 1536
+                    if args.output_layer is not None:
+                        print(f'Using output layer {args.output_layer}')
+                        layer_idx = args.output_layer
+                        feat = extracted_feat[layer_idx].cuda()    # 2 2304 1536
+                    elif args.fusion_layer is not None:
+                        print(f'Using fusion layer {args.fusion_layer}')
+                        print(f'Using fusion dim {args.fusion_dim}')
+                        layer_idx = args.fusion_layer
+                        feat = extracted_feat[layer_idx].cuda()    # 2 2304 1536
+                        
+                        # co_pca from sd-dino
+                        fusion_feats=[]
+                        for idx_p, pair_ft in enumerate(feat):
+                            # pair_ft: 2 2048 1536  
+                            target_dim = args.fusion_dim
+                            num_tkn = pair_ft.shape[1]
+                            pair_ft = rearrange(pair_ft, 'fts n d -> (fts n) d')        # n1+n2 d
+                            
+                            
+                            # equivalent to the above, pytorch implementation
+                            mean = torch.mean(pair_ft, dim=0, keepdim=True)
+                            centered_pair_ft = pair_ft - mean
+                            centered_pair_ft = centered_pair_ft.to(torch.float32)
+                            U, S, V = torch.pca_lowrank(centered_pair_ft, q=target_dim)
+                            reduced_pair_ft = torch.matmul(centered_pair_ft, V[:, :target_dim]) # (t_x+t_y)x(d)
+                            reduced_pair_ft = rearrange(reduced_pair_ft, '(fts n) d -> fts n d', fts=2)
+                            fusion_feats.append(reduced_pair_ft)
+                        
+                        feat = torch.cat(fusion_feats, dim=-1)
+
                     src_ft = feat[0].unsqueeze(0)   # 1 2304 64
                     trg_ft = feat[1].unsqueeze(0)   # 1 2304 64
 
-                    
                 src_ft = src_ft.cuda()  # 1 2304 64
                 trg_ft = trg_ft.cuda()  # 1 2304 64
             

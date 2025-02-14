@@ -239,6 +239,9 @@ if __name__ == "__main__":
     parser.add_argument('--fusion_layer', type=str, default=None, help='fusion layer for sd3')
     parser.add_argument('--fusion_dim', type=int, default=256, help='fusion dimension for sd3')
     
+    # DATA ARGS
+    parser.add_argument('--ALIGN_TRG_TO_SRC', action='store_true')
+    
     # VIS_ARGS 
     parser.add_argument('--WANDB_LOG_FREQ', type=int, default=50, help='wandb log frequency')
     parser.add_argument('--VIS_PCA_SINGLE_IMG', action='store_true')
@@ -254,6 +257,8 @@ if __name__ == "__main__":
     parser.add_argument('--VIS_ATTN_PROMPT', action='store_true')
     parser.add_argument('--AVG_ATTN_MAP', action='store_true')
     parser.add_argument('--VIS_LAYER', type=str, default=None, help='visualization layer')
+    parser.add_argument('--VIS_TXT_TO_IMG', action='store_true')
+    parser.add_argument('--VIS_ALL_SRC_TO_TRG', action='store_true')
     
     # ETC_ARGS
     parser.add_argument('--EVAL_SAMPLE_NUM', type=int, default=-1, help='evaluation sample number')
@@ -264,7 +269,13 @@ if __name__ == "__main__":
     parser.add_argument('--MSK_ATTN', type=int, default=-1, help='mask attention')
     parser.add_argument('--attn_map_head', type=str, default='mean', help='attention map head')
     parser.add_argument('--attn_map_no_softmax', action='store_true')
+    parser.add_argument('--reciprocal_attn_map', action='store_true')
     parser.add_argument('--attn_map_filter', type=str, default='no_filter', help='attention map filter')
+    
+    parser.add_argument('--SAM_MASK', action='store_true') # apply sam mask to image
+    parser.add_argument('--SAM_MASK_FEAT', action='store_true') # apply sam mask to feature
+    
+    parser.add_argument('--FUSION_DINO', action='store_true')
     
     args = parser.parse_args()
     

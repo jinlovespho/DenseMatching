@@ -43,6 +43,7 @@ for stop_step in 20; do
                     --WANDB_LOG_FREQ 2 \
                     --VIS_PCA_JOINT_IMG \
                     --VIS_KPTS_PREDICTION \
+                    --VIS_TXT_TO_IMG \
 
                 "
 

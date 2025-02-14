@@ -38,6 +38,6 @@ ETC_ARGS="
 
 # EVAL_SAMPLE_NUM -1 for evaluating on all samples
 
-CUDA=0
+CUDA=2
 CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py ${DATA_ARGS} ${MODEL_ARGS} ${LOG_ARGS} ${ETC_ARGS} ${VIS_ARGS}
 

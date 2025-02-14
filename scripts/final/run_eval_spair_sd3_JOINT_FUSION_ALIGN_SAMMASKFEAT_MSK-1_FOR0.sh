@@ -3,15 +3,16 @@
 DATA_ARGS="
     --dataset spair \
     --eval_img_size 1024 1024 \
+    --ALIGN_TRG_TO_SRC \
 "
 
 # feat_types:   attn_map query key value
 #               mmdit_attn mmdit_attn_1_scale mmdit_attn_2_res mmdit_attn_3_scaleshift mmdit_attn_4_norm
 #               mmdit_ff mmdit_ff_1_scale mmdit_ff_2_res
 
-CUDA=3
+CUDA=0
 # Loop through different stop steps
-for stop_step in 22; do
+for stop_step in 21 23 24 25; do
     # Loop through different feature types
     for feat_type in mmdit_attn; do
         # Loop through different layers
@@ -40,8 +41,8 @@ for stop_step in 22; do
                             --log_tool wandb \
                             --wandb_path ./wandb \
                             --wandb_proj_name zeroshot_matching \
-                            --wandb_exp_name server5_spair_SORTED_VALSPLIT360_sd3_JOINT_step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_fusion_dim${fusion_dim}_layer${fusion_layer}_promptGPT2_gpu${CUDA} \
-                            --save_dir ./vis/spair_SORTED_VALSPLIT360/sd3_JOINT/step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_fusion_dim${fusion_dim}_layer${fusion_layer}_promptGPT2 \
+                            --wandb_exp_name server5_spair_SORTED_VALSPLIT360_sd3_JOINT_FUSION_ALIGN_SAMMASKFEAT_step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_fusion_dim${fusion_dim}_layer${fusion_layer}_gpu${CUDA} \
+                            --save_dir ./vis/spair_SORTED_VALSPLIT360/sd3_JOINT/FUSION_ALIGN_SAMMASKFEAT_step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_fusion_dim${fusion_dim}_layer${fusion_layer} \
                         "
 
                         VIS_ARGS="
@@ -56,6 +57,7 @@ for stop_step in 22; do
                             --SORT_VAL_JSON \
                             --INFERENCE_FEAT_NO_SAVE \
                             --MSK_ATTN ${msk_attn} \
+                            --SAM_MASK_FEAT \
                         "
 
                         CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py ${DATA_ARGS} ${MODEL_ARGS} ${LAYER_SELECTION_ARGS} ${LOG_ARGS} ${ETC_ARGS} ${VIS_ARGS}

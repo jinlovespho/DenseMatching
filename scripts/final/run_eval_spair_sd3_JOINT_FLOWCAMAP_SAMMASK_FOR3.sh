@@ -11,43 +11,45 @@ DATA_ARGS="
 
 CUDA=3
 # Loop through different stop steps
-for stop_step in 22; do
+for stop_step in 20; do
     # Loop through different feature types
-    for feat_type in mmdit_attn; do
-        # Loop through different layers
-        for fusion_layer in "9,11,13"; do
-            # Loop through different fusion dimensions
-            for fusion_dim in 256; do
-                # Loop through different step counts
-                for inf_step_count in 1; do
-                    # Loop through different mask attention
-                    for msk_attn in -1; do   
+    for feat_type in attn_map; do
+        # Loop through different step counts
+        for inf_step_count in 1; do
+            # Loop through different mask attention
+            for msk_attn in -1; do 
+                # select attention layers 
+                for vis_layer in "9,10,11,12"; do
+                    # Loop through different beta softargmax
+                    for beta in -1; do
 
                         MODEL_ARGS="
                             --model sd3_joint \
                             --inf_max_step 28 \
                             --inf_stop_step ${stop_step} \
                             --inf_step_count ${inf_step_count} \
+                            --FLOW_CAMAP \
+                            --softargmax_beta ${beta} \
                         "
 
                         LAYER_SELECTION_ARGS="
                             --output_feat_type ${feat_type} \
-                            --fusion_layer ${fusion_layer} \
-                            --fusion_dim ${fusion_dim} \
                         "
 
                         LOG_ARGS="
                             --log_tool wandb \
                             --wandb_path ./wandb \
                             --wandb_proj_name zeroshot_matching \
-                            --wandb_exp_name server5_spair_SORTED_VALSPLIT360_sd3_JOINT_step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_fusion_dim${fusion_dim}_layer${fusion_layer}_promptGPT2_gpu${CUDA} \
-                            --save_dir ./vis/spair_SORTED_VALSPLIT360/sd3_JOINT/step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_fusion_dim${fusion_dim}_layer${fusion_layer}_promptGPT2 \
+                            --wandb_exp_name server5_spair_SORTED_VALSPLIT360_sd3_JOINT_FLOWCAMAP_SAMMASK_BETA${beta}_step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_layer${vis_layer}_alignCorFalse_gpu${CUDA} \
+                            --save_dir ./vis/spair_SORTED_VALSPLIT360/sd3_JOINT/FLOWCAMAP_SAMMASK_BETA${beta}_step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_layer${vis_layer} \
                         "
 
                         VIS_ARGS="
                             --WANDB_LOG_FREQ 2 \
                             --VIS_PCA_JOINT_IMG \
                             --VIS_KPTS_PREDICTION \
+                            --VIS_ATTN_MAP \
+                            --VIS_LAYER ${vis_layer} \
                         "
 
                         ETC_ARGS="
@@ -56,10 +58,10 @@ for stop_step in 22; do
                             --SORT_VAL_JSON \
                             --INFERENCE_FEAT_NO_SAVE \
                             --MSK_ATTN ${msk_attn} \
+                            --SAM_MASK \
                         "
 
                         CUDA_VISIBLE_DEVICES=${CUDA} python -u eval_matching.py ${DATA_ARGS} ${MODEL_ARGS} ${LAYER_SELECTION_ARGS} ${LOG_ARGS} ${ETC_ARGS} ${VIS_ARGS}
-
                     done
                 done
             done

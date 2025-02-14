@@ -146,7 +146,7 @@ class SD3Transformer2DModel(
             int, ...
         ] = (),  # () for sd3.0; (0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12) for sd3.5
         qk_norm: Optional[str] = None,
-        args=None
+        args=None,
     ):
         super().__init__()
         
@@ -357,7 +357,9 @@ class SD3Transformer2DModel(
         joint_attention_kwargs: Optional[Dict[str, Any]] = None,
         return_dict: bool = True,
         skip_layers: Optional[List[int]] = None,
-        args=None
+        args=None,
+        img1_msk=None,
+        img2_msk=None,
     ) -> Union[torch.FloatTensor, Transformer2DModelOutput]:
         """
         The [`SD3Transformer2DModel`] forward method.
@@ -475,7 +477,9 @@ class SD3Transformer2DModel(
                     encoder_hidden_states=encoder_hidden_states,
                     temb=temb,
                     joint_attention_kwargs=joint_attention_kwargs,
-                    args=args
+                    args=args,
+                    img1_msk=img1_msk,
+                    img2_msk=img2_msk,
                 )
                 
                 for key, value in my_output.items():

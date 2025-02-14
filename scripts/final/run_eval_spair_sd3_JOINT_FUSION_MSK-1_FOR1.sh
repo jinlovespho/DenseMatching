@@ -11,7 +11,7 @@ DATA_ARGS="
 
 CUDA=1
 # Loop through different stop steps
-for stop_step in 16 18 22; do
+for stop_step in 24 26; do
     # Loop through different feature types
     for feat_type in mmdit_attn; do
         # Loop through different layers
@@ -37,7 +37,7 @@ for stop_step in 16 18 22; do
                         "
 
                         LOG_ARGS="
-                            --log_tool wandb \
+                            --log_tool wandba \
                             --wandb_path ./wandb \
                             --wandb_proj_name zeroshot_matching \
                             --wandb_exp_name server5_spair_SORTED_VALSPLIT360_sd3_JOINT_step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_fusion_dim${fusion_dim}_layer${fusion_layer}_gpu${CUDA} \

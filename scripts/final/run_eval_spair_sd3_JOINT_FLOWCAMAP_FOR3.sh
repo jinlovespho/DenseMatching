@@ -21,7 +21,7 @@ for stop_step in 20; do
                 # select attention layers 
                 for vis_layer in "9,10,11,12"; do
                     # Loop through different beta softargmax
-                    for beta in 1e-4; do
+                    for beta in -1; do
 
                         MODEL_ARGS="
                             --model sd3_joint \
@@ -40,7 +40,7 @@ for stop_step in 20; do
                             --log_tool wandb \
                             --wandb_path ./wandb \
                             --wandb_proj_name zeroshot_matching \
-                            --wandb_exp_name server5_spair_SORTED_VALSPLIT360_sd3_JOINT_FLOWCAMAP_BETA${beta}_step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_layer${vis_layer}_gpu${CUDA} \
+                            --wandb_exp_name server5_spair_SORTED_VALSPLIT360_sd3_JOINT_FLOWCAMAP_BETA${beta}_step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_layer${vis_layer}_alignCorFalse_gpu${CUDA} \
                             --save_dir ./vis/spair_SORTED_VALSPLIT360/sd3_JOINT/FLOWCAMAP_BETA${beta}_step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_layer${vis_layer} \
                         "
 

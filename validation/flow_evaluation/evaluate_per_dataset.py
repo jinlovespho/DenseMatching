@@ -4,7 +4,7 @@ import os
 import json 
 import sys 
 import cv2 
-from PIL import Image
+from PIL import Image, ImageChops
 from tqdm import tqdm
 import pandas as pd
 from torch.utils.data import DataLoader
@@ -28,6 +28,11 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 from validation.sd3_utils import prepare_spair, extract_and_save_feats, validate
 
+from matplotlib import pyplot as plt
+from segment_anything import sam_model_registry, SamPredictor
+from segment_anything.sam_utils import show_mask, show_points, show_box
+from transformers import pipeline
+
 class FeatureL2Norm(nn.Module):
     """
     Implementation by Ignacio Rocco
@@ -48,7 +53,8 @@ def softmax_with_temperature(x, beta, d = 1):
     x = x - M # subtract maximum value for stability
     exp_x = torch.exp(x/beta)
     exp_x_sum = exp_x.sum(dim=d, keepdim=True)
-    return exp_x / exp_x_sum
+    out = exp_x / exp_x_sum
+    return out
 
 def soft_argmax(corr, beta=0.02, x_normal=None, y_normal=None):
     r'''SFNet: Learning Object-aware Semantic Flow (Lee et al.)'''
@@ -56,14 +62,14 @@ def soft_argmax(corr, beta=0.02, x_normal=None, y_normal=None):
     # corr: 1 2048 32 64
     feature_size_x = corr.shape[3]  # 64
     feature_size_y = corr.shape[2]  # 32
-    
-    l2norm = FeatureL2Norm()
+
     x_normal = np.linspace(-1,1,feature_size_x)
     x_normal = nn.Parameter(torch.tensor(x_normal, dtype=torch.float, requires_grad=False)).cuda()
     y_normal = np.linspace(-1,1,feature_size_y)
     y_normal = nn.Parameter(torch.tensor(y_normal, dtype=torch.float, requires_grad=False)).cuda()
         
     b,_,h,w = corr.size()   # 1 1024 32 64
+
     corr = softmax_with_temperature(corr, beta=beta, d=1)
     corr = corr.view(-1,h,w,h,w) # (target hxw) x (source hxw)
 
@@ -76,7 +82,9 @@ def soft_argmax(corr, beta=0.02, x_normal=None, y_normal=None):
     y_normal = y_normal.expand(b,h)
     y_normal = y_normal.view(b,h,1,1)
     grid_y = (grid_y*y_normal).sum(dim=1, keepdim=True) # b x 1 x h x w
+
     return grid_x, grid_y
+
 def resize_images_to_min_resolution(min_size, img, x, y, stride_net=16):  # for consistency with RANSAC-Flow
     """
     Function that resizes the image according to the minsize, at the same time resize the x,y coordinate.
@@ -103,113 +111,6 @@ def resize_images_to_min_resolution(min_size, img, x, y, stride_net=16):  # for 
     index_valid = (x > 0) * (x < new_w) * (y > 0) * (y < new_h)
 
     return img, x, y, index_valid
-
-
-def run_evaluation_kitti(network, test_dataloader, device, estimate_uncertainty=False,
-                         path_to_save=None, plot=False, plot_100=False, plot_ind_images=False, args=None):
-    out_list, epe_list = [], []
-    dict_list_uncertainties = {}
-    pbar = tqdm(enumerate(test_dataloader), total=len(test_dataloader))
-    for i_batch, mini_batch in pbar:
-        source_img = mini_batch['source_image']     # 1 3 376 1241
-        target_img = mini_batch['target_image']     # 1 3 376 1241
-        flow_gt = mini_batch['flow_map'].to(device)  # 1 2 376 1241
-        mask_valid = mini_batch['correspondence_mask'].to(device)   # 1 376 1241
-        
-        breakpoint()
-        source_img = source_img.float().to(device)
-        target_img = target_img.float().to(device)
-        _, _, orig_H, orig_W = source_img.shape
-
-        if args.model == 'crocov2':
-            # in1k_mean = torch.tensor([0.485, 0.456, 0.406]).view(3,1,1).to(device)
-            # in1k_std =  torch.tensor([0.229, 0.224, 0.225]).view(3,1,1).to(device)
-
-            img_s = source_img.clone().float() / 255.0
-            img_t = target_img.clone().float() / 255.0
-
-            # img_s = (img_s - in1k_mean) / in1k_std
-            # img_t = (img_t - in1k_mean) / in1k_std
-
-            img_s = img_s.to(device)
-            img_t = img_t.to(device) 
-
-            if args.eval_img_size is not None:
-                H, W = args.eval_img_size
-                H_32, W_32 = (H//32)*32, (W//32)*32
-                img_s = F.interpolate(img_s, size=(H_32, W_32), mode='bilinear', align_corners=False)
-                img_t = F.interpolate(img_t, size=(H_32, W_32), mode='bilinear', align_corners=False)
-            
-            # mask_valid = F.interpolate(mask_valid.float().unsqueeze(0), size=(H_32, W_32), mode='nearest').squeeze(0).bool()
-            # flow_gt_h,flow_gt_w = flow_gt.size(2),flow_gt.size(3)
-            # flow_gt = F.interpolate(flow_gt, size=(H_32, W_32), mode='bilinear', align_corners=False).to(device)
-            # flow_gt[:,0,:,:] *= W_32/flow_gt_w
-            # flow_gt[:,1,:,:] *= H_32/flow_gt_h
-
-        breakpoint()
-        if args.dense_zoom_in:
-            flow_est, uncertainty_est = network.zoom_in_batch(img_s, img_t, zoom_ratio=args.dense_zoom_ratio, optimize=False, homo_only=False, batch_size=1)
-            print('dense zoom in')
-            print('input img_shape: ', img_s.shape)
-            print('output flow_est shape: ', flow_est.shape)
-            print('gt_flow shape: ', flow_gt.shape)
-        else:
-            coarse_flow = network(img_t, img_s)    # b 2 14 14
-            orig_size = (orig_H, orig_W)    # 600 800
-            flow_est = F.interpolate(coarse_flow, size=orig_size, mode='bilinear', align_corners=False)
-            flow_est[:, 0] *= float(orig_W) / float(14)
-            flow_est[:, 1] *= float(orig_H) / float(14)
-            print('no dense zoom in')
-            print('input img_shape: ', img_s.shape)
-            print('output coarse_flow shape: ', coarse_flow.shape)
-            print('output upsampled flow_est shape: ', flow_est.shape)
-            print('gt_flow shape: ', flow_gt.shape)
-
-        save_image(img_s, f'kitti2012_img_s.jpg', normalize=True)
-        save_image(img_t, f'kitti2012_img_t.jpg', normalize=True)
-        save_image(mask_valid.float(), f'kitti2012_img_mask.jpg', normalize=True)
-        warped_source_gt = warp(img_s, flow_gt.float())  
-        save_image(warped_source_gt, f'kitti2012_img_warped_src_gt.jpg', normalize=True)
-
-        breakpoint()
-
-        if estimate_uncertainty:
-            flow_est, uncertainty_est = network.estimate_flow_and_confidence_map(source_img, target_img)
-        else:
-            flow_est = network.estimate_flow(source_img, target_img)
-
-        if plot or (plot_100 and i_batch < 100):
-            plot_flow_and_uncertainty(path_to_save, 'image_{}'.format(i_batch), source_img, target_img,
-                                      flow_gt, flow_est, compute_rgb_flow=True)
-        if plot_ind_images:
-            plot_individual_images(path_to_save, 'image_{}'.format(i_batch), source_img, target_img, flow_est)
-
-        flow_est = flow_est.permute(0, 2, 3, 1)[mask_valid]
-        flow_gt = flow_gt.permute(0, 2, 3, 1)[mask_valid]
-
-        epe = torch.sum((flow_est - flow_gt) ** 2, dim=1).sqrt()
-        mag = torch.sum(flow_gt ** 2, dim=1).sqrt()
-
-        out = ((epe > 3.0) & ((epe / mag) > 0.05)).float()
-        epe_list.append(epe.mean().item())
-        out_list.append(out.cpu().numpy())
-
-        if estimate_uncertainty:
-            dict_list_uncertainties = compute_uncertainty_per_image(uncertainty_est, flow_gt, flow_est, mask_valid,
-                                                                    dict_list_uncertainties)
-
-    epe_list = np.array(epe_list)
-    out_list = np.concatenate(out_list)
-
-    epe = np.mean(epe_list)  # AEPE is per image, and then averaged over the dataset.
-    fl = 100 * np.mean(out_list)  # fl is over the whole dataset
-    print("Validation KITTI: aepe: %f, fl: %f" % (epe, fl))
-    output = {'AEPE': epe, 'kitti-fl': fl}
-    if estimate_uncertainty:
-        for uncertainty_name in dict_list_uncertainties.keys():
-            output['uncertainty_dict_{}'.format(uncertainty_name)] = compute_average_of_uncertainty_metrics(
-                dict_list_uncertainties[uncertainty_name])
-    return output
 
 
 def run_evaluation_generic(network, test_dataloader, device, estimate_uncertainty=False, name_dataset=None, rate=None, curr_id=0, args=None):
@@ -716,8 +617,8 @@ def run_evaluation_semantic_dift(network, dataset_path, args):
             with open(os.path.join(dataset_path, 'PairAnnotation/test', json_path)) as temp_f:
                 data = json.load(temp_f)
             
-            src_img_size = data['src_imsize'][:2][::-1]
-            trg_img_size = data['trg_imsize'][:2][::-1]
+            src_orig_size = data['src_imsize'][:2][::-1]
+            trg_orig_size = data['trg_imsize'][:2][::-1]
 
             src_ft = output_dict[data['src_imname']]
             trg_ft = output_dict[data['trg_imname']]
@@ -833,8 +734,8 @@ def run_evaluation_semantic_dift(network, dataset_path, args):
                     # Save visualization using torchvision
                     save_image(vis_joint, f"{SAVE_PATH_JOINT_PCA}/pca_joint_src{data['src_imname'].split('.')[0]}_trg{data['trg_imname'].split('.')[0]}.jpg")
 
-            src_ft = nn.Upsample(size=src_img_size, mode='bilinear')(src_ft)
-            trg_ft = nn.Upsample(size=trg_img_size, mode='bilinear')(trg_ft)
+            src_ft = nn.Upsample(size=src_orig_size, mode='bilinear')(src_ft)
+            trg_ft = nn.Upsample(size=trg_orig_size, mode='bilinear')(trg_ft)
             h = trg_ft.shape[-2]
             w = trg_ft.shape[-1]
 
@@ -995,42 +896,254 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
         # if args.EVAL_SAMPLE_NUM != -1:
         #     cat_list = cat_list[:args.EVAL_SAMPLE_NUM]
 
+
+
         print(f'Evaluating for category ==> {cat}')
         for i, json_path in enumerate(tqdm(cat_list)):
             
             with open(os.path.join(dataset_path, test_path, json_path)) as temp_f:
                 data = json.load(temp_f)
             
-            src_imname = data['src_imname']
-            trg_imname = data['trg_imname']
+            src_imname = data['src_imname'].split('.')[0]
+            trg_imname = data['trg_imname'].split('.')[0]
             
-            src_img_size = data['src_imsize'][:2][::-1]
-            trg_img_size = data['trg_imsize'][:2][::-1]
+            src_orig_size = data['src_imsize'][:2][::-1]
+            trg_orig_size = data['trg_imsize'][:2][::-1]
             
-            img_src = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, src_imname))
-            img_trg = Image.open(os.path.join(dataset_path, 'JPEGImages', cat, trg_imname))
+            src_orig_H = src_orig_size[0]
+            src_orig_W = src_orig_size[1]
             
+            trg_orig_H = trg_orig_size[0]
+            trg_orig_W = trg_orig_size[1]
+            
+            src_img_path = f'{dataset_path}/JPEGImages/{cat}/{src_imname}.jpg'
+            trg_img_path = f'{dataset_path}/JPEGImages/{cat}/{trg_imname}.jpg'
+            
+            img_src = Image.open(src_img_path)
+            img_trg = Image.open(trg_img_path)
+            
+            src_pose = data['src_pose']
+            trg_pose = data['trg_pose']
+            
+            src_bbox = data['src_bndbox'] 
+            trg_bbox = data['trg_bndbox'] 
+
+            
+            OBTAIN_SAM_MASK = False
+            if OBTAIN_SAM_MASK:
+                # off the self SAM mask
+                sam_checkpoint = "./pretrained_weights/sam_vit_h_4b8939.pth"
+                model_type = "vit_h"
+                device = "cuda"
+
+                sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
+                sam.to(device=device)
+                predictor = SamPredictor(sam)
+                
+                src_img = cv2.imread(src_img_path)
+                trg_img = cv2.imread(trg_img_path)
+                src_img = cv2.cvtColor(src_img, cv2.COLOR_BGR2RGB)
+                trg_img = cv2.cvtColor(trg_img, cv2.COLOR_BGR2RGB)
+                
+                # set mask save directory
+                SAVE_MSK_DIR = f'./vis/spair_SORTED_VALSPLIT360/sam_mask/{cat}'
+                if not os.path.exists(SAVE_MSK_DIR):
+                    os.makedirs(SAVE_MSK_DIR)
+                
+                # get source mask
+                predictor.set_image(src_img)
+                input_box = np.array([src_bbox[0], src_bbox[1], src_bbox[2], src_bbox[3]])  
+                masks, _, _ = predictor.predict(
+                                    point_coords=None,
+                                    point_labels=None,
+                                    box=input_box[None, :],
+                                    multimask_output=False,
+                                )
+                mask = np.astype(masks[0], np.uint8) * 255
+                cv2.imwrite(f'{SAVE_MSK_DIR}/{src_imname.split(".")[0]}.png', mask)
+                
+                plt.figure(figsize=(10,10))
+                plt.imshow(src_img)
+                show_mask(masks[0], plt.gca())
+                show_box(input_box, plt.gca())
+                plt.axis('off')
+                plt.gca().set_facecolor('none') 
+                plt.savefig(f'{SAVE_MSK_DIR}/sam_{src_imname.split(".")[0]}_vis.png', 
+                          bbox_inches='tight',
+                          transparent=True,
+                          pad_inches=0)
+                plt.close()
+                
+                
+                 # get target mask
+                predictor.set_image(trg_img)
+                input_box = np.array([trg_bbox[0], trg_bbox[1], trg_bbox[2], trg_bbox[3]])  
+                masks, _, _ = predictor.predict(
+                                    point_coords=None,
+                                    point_labels=None,
+                                    box=input_box[None, :],
+                                    multimask_output=False,
+                                )
+                mask = np.astype(masks[0], np.uint8) * 255
+                cv2.imwrite(f'{SAVE_MSK_DIR}/{trg_imname.split(".")[0]}.jpg', mask)
+                
+                
+                plt.figure(figsize=(10,10))
+                plt.imshow(trg_img)
+                show_mask(masks[0], plt.gca())
+                show_box(input_box, plt.gca())
+                plt.axis('off')
+                plt.gca().set_facecolor('none') 
+                plt.savefig(f'{SAVE_MSK_DIR}/sam_{trg_imname.split(".")[0]}_vis.png', 
+                          bbox_inches='tight',
+                          transparent=True,
+                          pad_inches=0)
+                plt.close()
+                
+                continue
+
+            GPT_IMG_CAPTION = False
+            BLIP_IMG_CAPTION = False
+            
+            if GPT_IMG_CAPTION:
+                image_to_text = pipeline("image-to-text", model="nlpconnect/vit-gpt2-image-captioning")
+                src_caption = image_to_text(img_src)
+                trg_caption = image_to_text(img_trg)
+                src_caption = src_caption[0]['generated_text']
+                trg_caption = trg_caption[0]['generated_text']
+                img_cat_caption = f"A photo of two pictures, where the first picture on the top is a photo of {src_caption} and the second picture on the bottom is a photo of {trg_caption}"
+                
+            elif BLIP_IMG_CAPTION:
+                import requests
+                from transformers import BlipProcessor, BlipForConditionalGeneration
+
+                processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-large")
+                model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").to("cuda")
+                
+                PROMPT_SAVE_PATH = f'./vis/spair_SORTED_VALSPLIT360/prompt/blip_large/{cat}'
+                if not os.path.exists(PROMPT_SAVE_PATH):
+                    os.makedirs(PROMPT_SAVE_PATH)
+                    
+                tmp_img_src = img_src.resize((1024, 512))    
+                tmp_img_trg = img_trg.resize((1024, 512))
+                img_cat = Image.new('RGB', (tmp_img_src.width, tmp_img_src.height+tmp_img_trg.height))
+                img_cat.paste(tmp_img_src, (0, 0))
+                img_cat.paste(tmp_img_trg, (0, tmp_img_src.height))
+
+                # raw_image = img_cat
+                # # conditional image captioning
+                # text = "A photography of two pictures of"
+                # inputs = processor(raw_image, text, return_tensors="pt").to("cuda")
+                # out = model.generate(**inputs)
+                # img_cat_caption = processor.decode(out[0], skip_special_tokens=True)
+                
+                # # Save source captions in same file
+                # caption_path = f"{PROMPT_SAVE_PATH}/{src_imname}.txt"
+                # if not os.path.exists(caption_path):
+                #     with open(caption_path, 'w') as f:
+                #         f.write(f"{src_caption}\n")
+            
+                
+                raw_image = img_src
+                # conditional image captioning
+                text = "a photography of"
+                inputs = processor(raw_image, text, return_tensors="pt").to("cuda")
+                out = model.generate(**inputs)
+                src_caption = processor.decode(out[0], skip_special_tokens=True)
+                
+                # # Save source captions in same file
+                # caption_path = f"{PROMPT_SAVE_PATH}/{src_imname}.txt"
+                # if not os.path.exists(caption_path):
+                #     with open(caption_path, 'w') as f:
+                #         f.write(f"{src_caption}\n")
+
+                raw_image = img_trg
+                # conditional image captioning
+                text = "a photography of"
+                inputs = processor(raw_image, text, return_tensors="pt").to("cuda")
+                out = model.generate(**inputs)
+                trg_caption = processor.decode(out[0], skip_special_tokens=True)
+                
+                # # Save target captions in same file
+                # caption_path = f"{PROMPT_SAVE_PATH}/{trg_imname}.txt"
+                # if not os.path.exists(caption_path):
+                #     with open(caption_path, 'w') as f:
+                #         f.write(f"{trg_caption}\n")
+                
+                img_cat_caption = f"A photo of two pictures, where the first picture on the top is {src_caption} and the second picture on the bottom is {trg_caption}"
+                        
+                # continue
+
+
             # prompt: A photo of a {cat}
             # prompt1: A photo containing two {cat}s
             # prompt2: A high-quality photo containing two {cat}s
             # prompt3: ""
             # prompt4: A photo of {cat}s
             # prompt5: A photo of two {cat}s
+            # prompt6: A photo of two pictures of different {cat}s
+            # prompt7: A high-quality photo of two pictures showing different appearances of {cat}s.
             
-            prompt = f"A photo containing two {cat}s"
+            if args.model == 'sd3_single':
+                prompt = f"A photo of a {cat}"
+            else:
+                # prompt = f"A photo containing two {cat}s"
+                if BLIP_IMG_CAPTION or GPT_IMG_CAPTION:
+                    print(f'BLIP_IMG_CAPTION: {img_cat_caption}')
+                    prompt = img_cat_caption
+                else:   
+                    prompt = f"A high-quality photo of two pictures showing different appearances of {cat}s"
                 
             img1_info = {
                 'img1': img_src,
                 'img1_cat': cat,
-                'img1_name': src_imname.split('.')[0]
+                'img1_name': src_imname
             }
             
             img2_info = {
                 'img2': img_trg,
                 'img2_cat': cat,
-                'img2_name': trg_imname.split('.')[0]
+                'img2_name': trg_imname
             }
-
+            
+            
+            
+            
+            # mask image from the beginning
+            if args.SAM_MASK:
+                img1_msk = Image.open(f'./vis/spair_SORTED_VALSPLIT360/sam_mask/{cat}/{src_imname.split(".")[0]}.jpg').convert('RGB')
+                img2_msk = Image.open(f'./vis/spair_SORTED_VALSPLIT360/sam_mask/{cat}/{trg_imname.split(".")[0]}.jpg').convert('RGB')
+                
+                masked_img1 = ImageChops.multiply(img_src, img1_msk)
+                masked_img2 = ImageChops.multiply(img_trg, img2_msk)
+                
+                # img1_info['img1_msk'] = img1_msk
+                # img2_info['img2_msk'] = img2_msk
+                
+                img1_info['img1'] = masked_img1
+                img2_info['img2'] = masked_img2
+            
+            # mask features 
+            elif args.SAM_MASK_FEAT:
+                img1_msk = Image.open(f'./vis/spair_SORTED_VALSPLIT360/sam_mask/{cat}/{src_imname.split(".")[0]}.jpg').convert('RGB')
+                img2_msk = Image.open(f'./vis/spair_SORTED_VALSPLIT360/sam_mask/{cat}/{trg_imname.split(".")[0]}.jpg').convert('RGB')
+                
+                img1_info['img1_msk'] = img1_msk
+                img2_info['img2_msk'] = img2_msk
+            
+            if args.ALIGN_TRG_TO_SRC:
+                if (src_pose == 'Left' and trg_pose == 'Right') or (src_pose == 'Right' and trg_pose == 'Left'):
+                    print('Aligning TRG to SRC')
+                    # flip trg to src direction
+                    img_trg = img_trg.transpose(Image.FLIP_LEFT_RIGHT)
+                    img2_info['img2'] = img_trg
+                    # flip trg kpts 
+                    for i_trg_kpt in range(len(data['trg_kps'])):
+                        x_coord = data['trg_kps'][i_trg_kpt][0]
+                        y_coord = data['trg_kps'][i_trg_kpt][1]
+                        data['trg_kps'][i_trg_kpt] = [trg_orig_W - x_coord, y_coord]
+                    
+                
             # evaluate without saving feats
             if args.INFERENCE_FEAT_NO_SAVE:
        
@@ -1040,8 +1153,8 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                                                         prompt=prompt,
                                                         negative_prompt="",
                                                         num_inference_steps=args.inf_max_step,
-                                                        height=args.eval_img_size[0],
-                                                        width=args.eval_img_size[1],
+                                                        model_H=args.eval_img_size[0],
+                                                        model_W=args.eval_img_size[1],
                                                         guidance_scale=7.0,
                                                         do_classifier_free_guidance=args.DO_CFG)
                 
@@ -1052,8 +1165,8 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                                                         prompt=prompt,
                                                         negative_prompt="",
                                                         num_inference_steps=args.inf_max_step,
-                                                        height=args.eval_img_size[0],
-                                                        width=args.eval_img_size[1],
+                                                        model_H=args.eval_img_size[0],
+                                                        model_W=args.eval_img_size[1],
                                                         guidance_scale=7.0,
                                                         do_classifier_free_guidance=True)
                     
@@ -1063,15 +1176,57 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                 elif args.model == 'another_model':
                     pass
 
+            ALIGN_CORNERS = False
                         
             # compute flow with camap (like zeroco)
             if args.FLOW_CAMAP:
                 print('-'*70)
                 print("MATCHING WITH FLOW CAMAP")
                 assert args.output_feat_type == 'attn_map'
-
-                attn_maps12 = extracted_feat[:,0].cuda()   # src->trg: 24 2304 2304 
-                attn_maps21 = extracted_feat[:,1].cuda()   # trg->src: 24 2304 2304 
+                
+                attn_maps12 = extracted_feat[:,0].cuda()   # src->trg: 24 2048 2048 
+                attn_maps21 = extracted_feat[:,1].cuda()   # trg->src: 24 2048 2048 
+                # attn_maps12_trans = attn_maps21.transpose(-1, -2)
+                
+                # attn_maps12 = attn_maps12.softmax(dim=-1)                   # 24 2048 2048
+                # attn_maps12_trans = attn_maps12_trans.softmax(dim=-1)       # 24 2048 2048
+                
+                # model_H, model_W = 512, 1024 
+                # feat_H, feat_W = 512//16, 1024//16
+                
+                
+                # beta=1e-4
+                # # compute mapping for src 
+                # grid1_x, grid1_y = soft_argmax(attn_maps12.transpose(-1,-2).reshape(1, -1,feat_H, feat_W), beta=beta)       
+                # grid1 = torch.cat((grid1_x, grid1_y), dim=1)     
+                # _, mapping1 = unnormalise_and_convert_mapping_to_flow(grid1)       # flow_est: 1 2 32 64,  mapping: 1 2 32 64                                                    
+   
+                # # compute mapping for trg
+                # grid2_x, grid2_y = soft_argmax(attn_maps12_trans.transpose(-1,-2).reshape(1, -1,feat_H, feat_W), beta=beta)       
+                # grid2 = torch.cat((grid2_x, grid2_y), dim=1)                                                       
+                # _, mapping2 = unnormalise_and_convert_mapping_to_flow(grid2)       # flow_est: 1 2 32 64,  mapping: 1 2 32 64   
+                
+                # # src_orig_size: model_H, model_W (334 500)
+                # # trg_orig_size: model_H, model_W (322 500)
+                # # data['src_kps']
+                
+                # total += 1
+                # cat_total += 1
+                # all_total += 1
+                
+                # src_point = scaled_kpts_src[idx]        # (991, 223)
+                # trg_point = torch.tensor(scaled_kpts_trg[idx]).cuda()
+                                                    
+                # # mapping_up: 1 2 512 1024  # src->trg 
+                # pred_x, pred_y = mapping_up_src[0,:, src_point[1], src_point[0]]
+                
+                # dist = ((pred_x - trg_point[0]) ** 2 + (pred_y - trg_point[1]) ** 2) ** 0.5
+                # if (dist / scaled_threshold) <= 0.1:
+                #     correct += 1
+                #     cat_correct += 1
+                #     all_correct += 1
+                
+                # breakpoint()
                 
                 tot_num_layer = attn_maps12.shape[0] 
                 # average layers if all layers are selected
@@ -1091,15 +1246,25 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                     attn_maps12 = map12.unsqueeze(0)
                     attn_maps21 = map21.unsqueeze(0)
                 
-                attn_maps_img12 = attn_maps12                 # 1 1024 2048
-                attn_maps_img21 = attn_maps21                 # 1 1024 2048
-                attn_map_direction = 'src_to_trg'
+                if args.VIS_ALL_SRC_TO_TRG:
+                    attn_maps12 = attn_maps12.softmax(dim=-1)
+                    attn_maps21 = attn_maps21.softmax(dim=-1)
+                    attn_maps12_trans = attn_maps21.transpose(-1, -2)
+                    
+                    attn_maps_img12 = attn_maps12                 # 1 1024 2048
+                    attn_maps_img21 = attn_maps21                 # 1 1024 2048
+                    attn_map_direction = 'all_src_to_trg'
+
+                else:
+                    attn_maps_img12 = attn_maps12                 # 1 1024 2048
+                    attn_maps_img21 = attn_maps21                 # 1 1024 2048
+                    attn_map_direction = 'src_to_trg'
                 
                 if args.model == 'sd3_joint':
-                    orig_H = args.eval_img_size[0] // 2     # 512
-                    orig_W = args.eval_img_size[1]          # 1024
-                    feat_H = orig_H // 16                     # 32
-                    feat_W = orig_W // 16                     # 64
+                    model_H = args.eval_img_size[0] // 2     # 512
+                    model_W = args.eval_img_size[1]          # 1024
+                    feat_H = model_H // 16                     # 32
+                    feat_W = model_W // 16                     # 64
             
                 # attn_maps_img.shape: 1 2048 2048 (src, trg)
                 # height: 32
@@ -1107,32 +1272,58 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                 
                 beta=args.softargmax_beta
                 print('Soft-argmax beta: ', beta)
+                if beta == -1.0:
+                    
+                    if args.attn_map_no_softmax and args.reciprocal_attn_map:
+                        print('Using BOTH src->trg and trg->src attention, reciprocal attn map !!')
+                        attn_maps_img12_soft = attn_maps_img12.softmax(dim=-1)
+                        attn_maps_img21_T = attn_maps_img21.transpose(-1,-2).softmax(dim=-1)
+                        attn_src = (attn_maps_img12_soft + attn_maps_img21_T) / 2.0
+                    else:
+                        print('Using ONLY src->trg attention, NO reciprocal attn map !!')
+                        attn_src = attn_maps_img12
+                       
+                    attn_src = attn_src.transpose(-1,-2).reshape(1, -1, feat_H, feat_W)  # 1 N H W
+                    max_indices_src = torch.argmax(attn_src, dim=1)  # 1 H W
+                    grid_src_y = (max_indices_src // feat_W).float().unsqueeze(1)  # 1 1 H W 
+                    grid_src_x = (max_indices_src % feat_W).float().unsqueeze(1)   # 1 1 H W
+                    grid_src = torch.cat((grid_src_x, grid_src_y), dim=1)          # 1 2 H W
+                    mapping_src = grid_src
+
+                    # # compute mapping for trg 
+                    # attn_trg = attn_maps_img21.transpose(-1,-2).reshape(1, -1, feat_H, feat_W)  # 1 N H W
+                    # max_indices_trg = torch.argmax(attn_trg, dim=1)  # 1 H W
+                    # grid_trg_y = (max_indices_trg // feat_W).float().unsqueeze(1)  # 1 1 H W
+                    # grid_trg_x = (max_indices_trg % feat_W).float().unsqueeze(1)   # 1 1 H W
+                    # grid_trg = torch.cat((grid_trg_x, grid_trg_y), dim=1)          # 1 2 H W
+                    # mapping_trg = grid_trg
                 
-                # compute mapping for src 
-                grid_src_x, grid_src_y = soft_argmax(attn_maps_img12.transpose(-1,-2).reshape(1, -1,feat_H, feat_W), beta=beta)       
-                grid_src = torch.cat((grid_src_x, grid_src_y), dim=1)                                                       
-                flow_est_src, mapping_src = unnormalise_and_convert_mapping_to_flow(grid_src)       # flow_est: 1 2 32 64,  mapping: 1 2 32 64      
-                # compute mapping for trg
-                grid_trg_x, grid_trg_y = soft_argmax(attn_maps_img21.transpose(-1,-2).reshape(1, -1,feat_H, feat_W), beta=beta)       
-                grid_trg = torch.cat((grid_trg_x, grid_trg_y), dim=1)                                                       
-                flow_est_trg, mapping_trg = unnormalise_and_convert_mapping_to_flow(grid_trg)       # flow_est: 1 2 32 64,  mapping: 1 2 32 64      
+                else:
+                    # compute mapping for src 
+                    grid_src_x, grid_src_y = soft_argmax(attn_maps_img12.transpose(-1,-2).reshape(1, -1,feat_H, feat_W), beta=beta)       
+                    grid_src = torch.cat((grid_src_x, grid_src_y), dim=1)                                                       
+                    flow_est_src, mapping_src = unnormalise_and_convert_mapping_to_flow(grid_src)       # flow_est: 1 2 32 64,  mapping: 1 2 32 64      
+                    # # compute mapping for trg
+                    # grid_trg_x, grid_trg_y = soft_argmax(attn_maps_img21.transpose(-1,-2).reshape(1, -1,feat_H, feat_W), beta=beta)       
+                    # grid_trg = torch.cat((grid_trg_x, grid_trg_y), dim=1)                                                       
+                    # flow_est_trg, mapping_trg = unnormalise_and_convert_mapping_to_flow(grid_trg)       # flow_est: 1 2 32 64,  mapping: 1 2 32 64      
                 
-                # flow_est_src = F.interpolate(flow_est_src, size=(orig_H, orig_W), mode='bilinear', align_corners=False)     # 1 2 512 1024
-                # flow_est_src[:,0,:,:] *= orig_W/feat_W 
-                # flow_est_src[:,1,:,:] *= orig_H/feat_H 
+                # flow_est_src = F.interpolate(flow_est_src, size=(model_H, model_W), mode='bilinear', align_corners=ALIGN_CORNERS)     # 1 2 512 1024
+                # flow_est_src[:,0,:,:] *= model_W/feat_W 
+                # flow_est_src[:,1,:,:] *= model_H/feat_H 
                 
-                # flow_est_trg = F.interpolate(flow_est_trg, size=(orig_H, orig_W), mode='bilinear', align_corners=False)     # 1 2 512 1024
-                # flow_est_trg[:,0,:,:] *= orig_W/feat_W 
-                # flow_est_trg[:,1,:,:] *= orig_H/feat_H 
+                # flow_est_trg = F.interpolate(flow_est_trg, size=(model_H, model_W), mode='bilinear', align_corners=ALIGN_CORNERS)     # 1 2 512 1024
+                # flow_est_trg[:,0,:,:] *= model_W/feat_W 
+                # flow_est_trg[:,1,:,:] *= model_H/feat_H 
                 
                 # scale mapping src
-                mapping_up_src = F.interpolate(mapping_src, size=(orig_H, orig_W), mode='bilinear', align_corners=False)    # 1 2 512 1024
-                mapping_up_src[:,0,:,:] *= orig_W/feat_W 
-                mapping_up_src[:,1,:,:] *= orig_H/feat_H 
-                # scale mapping trg
-                mapping_up_trg = F.interpolate(mapping_trg, size=(orig_H, orig_W), mode='bilinear', align_corners=False)    # 1 2 512 1024
-                mapping_up_trg[:,0,:,:] *= orig_W/feat_W 
-                mapping_up_trg[:,1,:,:] *= orig_H/feat_H     
+                mapping_up_src = F.interpolate(mapping_src, size=(model_H, model_W), mode='bilinear', align_corners=ALIGN_CORNERS)    # 1 2 512 1024
+                mapping_up_src[:,0,:,:] *= model_W/feat_W 
+                mapping_up_src[:,1,:,:] *= model_H/feat_H 
+                # # scale mapping trg
+                # mapping_up_trg = F.interpolate(mapping_trg, size=(model_H, model_W), mode='bilinear', align_corners=ALIGN_CORNERS)    # 1 2 512 1024
+                # mapping_up_trg[:,0,:,:] *= model_W/feat_W 
+                # mapping_up_trg[:,1,:,:] *= model_H/feat_H     
             
             # visualize attention maps
             if args.VIS_ATTN_MAP:
@@ -1144,8 +1335,15 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                     assert args.output_feat_type == 'attn_map'
 
                     if args.FLOW_CAMAP:
-                        attn_maps_img12 = attn_maps_img12 
-                        attn_maps_img21 = attn_maps_img21 
+                        if args.attn_map_no_softmax and args.reciprocal_attn_map:
+                            attn_src = (attn_maps_img12 + attn_maps_img21.transpose(-1,-2)) / 2.0
+                            attn_maps_img12 = attn_src.softmax(dim=-1)
+                            attn_maps_img21 = attn_maps21.softmax(dim=-1)
+
+                        else:
+                            print('Using ONLY src->trg attention, NO reciprocal attn map !!')
+                            attn_maps_img12 = attn_maps_img12 
+                            attn_maps_img21 = attn_maps_img21 
                         
                     else:
                         attn_maps12 = extracted_feat[:,0]   # src->trg: 24 2304 2304 
@@ -1170,35 +1368,40 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                             print('ERROR!!!! VIS_ATTN_MAP')
                     
                     if args.model == 'sd3_joint':
-                        vis_h = args.eval_img_size[0] // 2
-                        vis_w = args.eval_img_size[1] 
+                        model_H = model_H
+                        model_W = model_W
+                        feat_H = feat_H
+                        feat_W = feat_W
                     else:
-                        vis_h = args.eval_img_size[0]
-                        vis_w = args.eval_img_size[1]
+                        model_H = args.eval_img_size[0]
+                        model_W = args.eval_img_size[1]
+                        feat_H = model_H // 16
+                        feat_W = model_W // 16
                         
-                    # prepare src img
-                    img1_tensor = network.pipe.image_processor.preprocess(img1_info['img1'], vis_h, vis_w)     # 1 3 768 768
-                    img1_tensor_re = (img1_tensor + 1) / 2  # [0,1]
-                    img1_np = (img1_tensor_re.squeeze().permute(1,2,0).cpu().numpy() * 255.0).astype(np.uint8) # 768 768 3 
-                    img1_np = np.ascontiguousarray(img1_np) # 768 768 3 
-                    # prepare trg img
-                    img2_tensor = network.pipe.image_processor.preprocess(img2_info['img2'], vis_h, vis_w)     # 1 3 768 768
-                    img2_tensor_re = (img2_tensor + 1) / 2  # [0,1]
-                    img2_np = (img2_tensor_re.squeeze().permute(1,2,0).cpu().numpy() * 255.0).astype(np.uint8) # 768 768 3 
-                    img2_np = np.ascontiguousarray(img2_np) # 768 768 3 
+                    # # prepare src img
+                    # img1_tensor = network.pipe.image_processor.preprocess(img1_info['img1'], vis_h, vis_w)     # 1 3 768 768
+                    # img1_tensor_re = (img1_tensor + 1) / 2  # [0,1]
+                    # img1_np = (img1_tensor_re.squeeze().permute(1,2,0).cpu().numpy() * 255.0).astype(np.uint8) # 768 768 3 
+                    # img1_np = np.ascontiguousarray(img1_np) # 768 768 3 
+                    # # prepare trg img
+                    # img2_tensor = network.pipe.image_processor.preprocess(img2_info['img2'], vis_h, vis_w)     # 1 3 768 768
+                    # img2_tensor_re = (img2_tensor + 1) / 2  # [0,1]
+                    # img2_np = (img2_tensor_re.squeeze().permute(1,2,0).cpu().numpy() * 255.0).astype(np.uint8) # 768 768 3 
+                    # img2_np = np.ascontiguousarray(img2_np) # 768 768 3 
                     
-                    # prepare size infos
-                    ps=16   # not real patch size, but patch size for visualization
-                    pH = vis_h // ps
-                    pW = vis_w // ps
-                    N = pH * pW
+                    img1_np = np.array(img_src.resize((model_W, model_H)))
+                    img2_np = np.array(img_trg.resize((model_W, model_H)))
+                    
+                    # total number of patches
+                    ps=16
+                    N = feat_H * feat_W
 
                     # set scaling ratio for src
-                    x_scale_src = vis_w / src_img_size[1]
-                    y_scale_src = vis_h / src_img_size[0]
+                    x_scale_src = model_W / src_orig_W
+                    y_scale_src = model_H / src_orig_H
                     # set scaling ratio for trg
-                    x_scale_trg = vis_w / trg_img_size[1]
-                    y_scale_trg = vis_h / trg_img_size[0]
+                    x_scale_trg = model_W / trg_orig_W
+                    y_scale_trg = model_H / trg_orig_H
                     
                     # add scaled kpts for src and trg
                     scaled_kpts_src = []
@@ -1219,12 +1422,12 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                     # set vis points for src
                     vis_points_src = []
                     for src_kpt in scaled_kpts_src:
-                        tkn_idx_src = src_kpt[0] // ps + src_kpt[1] // ps * pW
+                        tkn_idx_src = (src_kpt[0] // ps) + (src_kpt[1] // ps * feat_W)
                         vis_points_src.append(tkn_idx_src)
                     # set vis points for trg
                     vis_points_trg = []
                     for trg_kpt in scaled_kpts_trg:
-                        tkn_idx_trg = trg_kpt[0] // ps + trg_kpt[1] // ps * pW
+                        tkn_idx_trg = (trg_kpt[0] // ps) + (trg_kpt[1] // ps * feat_W)
                         vis_points_trg.append(tkn_idx_trg)
                          
                     # visualize src->trg attention map
@@ -1245,23 +1448,29 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                             img2_np_vis = img2_np.copy()
                             
                             # get l-th layer attention map with query_point
-                            attn_mask = vis_attn_maps_img[l][src_point].view(pH,pW)
-                            attn_mask = F.interpolate(attn_mask[None, None], size=(vis_h, vis_w), mode='bilinear', align_corners=False).squeeze()
+                            attn_mask = vis_attn_maps_img[l][src_point].view(feat_H, feat_W)
+                            # Keep only the highest attention values (e.g. top 10%)
+                            # threshold = attn_mask.float().quantile(0.99)
+                            
+                            threshold = attn_mask.max()
+                            attn_mask[attn_mask < threshold] = 0
+                            
+                            attn_mask = F.interpolate(attn_mask[None, None], size=(model_H, model_W), mode='bilinear', align_corners=ALIGN_CORNERS).squeeze()
                             attn_mask = (attn_mask-attn_mask.min())/(attn_mask.max()-attn_mask.min())
-
-                            idx_h = src_point // pW 
-                            idx_w = src_point % pW 
+                            
+                            idx_h = src_point // feat_W 
+                            idx_w = src_point % feat_W 
                             
                             # Draw the query point as a circle
                             center = (idx_w*ps, idx_h*ps)
                             cv2.circle(img1_np_vis, center, ps//2, (255,0,0), -1)       # BGR
                             cv2.circle(img1_np_vis, center, ps//2, (255,255,255), 2)
                             
-                            if args.VIS_ATTN_SRC_TO_TRG or args.VIS_ATTN_TRG_TO_SRC or attn_map_direction=='src_to_trg' or attn_map_direction=='trg_to_src':
-                                # plot the real gt target point
-                                trg_center = (int(trg_point[0]), int(trg_point[1]))
-                                cv2.circle(img2_np_vis, trg_center, ps//2, (255,0,0), -1)       # BGR
-                                cv2.circle(img2_np_vis, trg_center, ps//2, (255,255,255), 2)
+                            # if args.VIS_ATTN_SRC_TO_TRG or args.VIS_ATTN_TRG_TO_SRC or attn_map_direction=='src_to_trg' or attn_map_direction=='trg_to_src':
+                            # plot the real gt target point
+                            trg_center = (int(trg_point[0]), int(trg_point[1]))
+                            cv2.circle(img2_np_vis, trg_center, ps//2, (255,0,0), -1)       # BGR
+                            cv2.circle(img2_np_vis, trg_center, ps//2, (255,255,255), 2)
                                 
                             img1_np_vis = img1_np_vis[...,::-1] 
                             img2_np_vis = img2_np_vis[...,::-1] 
@@ -1282,14 +1491,8 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                                 # Combine source and target images side by side
                                 combined_img = np.concatenate([img1_np_vis, np.uint8(255*masked_img)], axis=1)
                             
-                            if args.AVG_ATTN_MAP:
-                                l='AVG'
-                                VIS_SAVE_PATH = f"{args.save_dir}/{attn_map_direction}/{img1_info['img1_cat']}/src{src_name}_trg{trg_name}"   
-                                FILE_SAVE_NAME = f"point{src_point}_src{src_name}_trg{trg_name}_layer{l}.jpg"
-                            
-                            else:
-                                VIS_SAVE_PATH = f"{args.save_dir}/src_to_trg/{img1_info['img1_cat']}/src{src_name}_trg{trg_name}/point{src_point}"   
-                                FILE_SAVE_NAME = f"src{src_name}_trg{trg_name}_layer{l}.jpg"
+                            VIS_SAVE_PATH = f"{args.save_dir}/src_to_trg/{img1_info['img1_cat']}/src{src_name}_trg{trg_name}"   
+                            FILE_SAVE_NAME = f"point{src_point}_src{src_name}_trg{trg_name}_layer{l}.jpg"
                                                      
                             # set save path 
                             if not os.path.exists(VIS_SAVE_PATH):
@@ -1301,7 +1504,76 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                             else:
                                 # Save visualization using torchvision
                                 cv2.imwrite(f"{VIS_SAVE_PATH}/{FILE_SAVE_NAME}", combined_img)    
+                    
+                    if args.VIS_ALL_SRC_TO_TRG:
+                        # visualize src->trg attention map
+                        vis_points1 = vis_points_src 
+                        vis_points2 = scaled_kpts_trg
+                        vis_attn_maps_img = attn_maps12_trans.clone()  # 1 2048 2048
+                        vis_layers = [0]     
+                        for j in range(len(vis_points1)):
+                            for l in vis_layers:
+                                
+                                src_point = vis_points1[j]
+                                trg_point = vis_points2[j]
+                                
+                                src_name = img1_info['img1_name']
+                                trg_name = img2_info['img2_name']
+                                
+                                img1_np_vis = img1_np.copy()
+                                img2_np_vis = img2_np.copy()
+                                
+                                # get l-th layer attention map with query_point
+                                attn_mask = vis_attn_maps_img[l][src_point].view(feat_H, feat_W)
+                                attn_mask = F.interpolate(attn_mask[None, None], size=(model_H, model_W), mode='bilinear', align_corners=ALIGN_CORNERS).squeeze()
+                                attn_mask = (attn_mask-attn_mask.min())/(attn_mask.max()-attn_mask.min())
 
+                                idx_h = src_point // feat_W 
+                                idx_w = src_point % feat_W 
+                                
+                                # Draw the query point as a circle
+                                center = (idx_w*ps, idx_h*ps)
+                                cv2.circle(img1_np_vis, center, ps//2, (255,0,0), -1)       # BGR
+                                cv2.circle(img1_np_vis, center, ps//2, (255,255,255), 2)
+                                
+                                # if args.VIS_ATTN_SRC_TO_TRG or args.VIS_ATTN_TRG_TO_SRC or attn_map_direction=='src_to_trg' or attn_map_direction=='trg_to_src':
+                                # plot the real gt target point
+                                trg_center = (int(trg_point[0]), int(trg_point[1]))
+                                cv2.circle(img2_np_vis, trg_center, ps//2, (255,0,0), -1)       # BGR
+                                cv2.circle(img2_np_vis, trg_center, ps//2, (255,255,255), 2)
+                                    
+                                img1_np_vis = img1_np_vis[...,::-1] 
+                                img2_np_vis = img2_np_vis[...,::-1] 
+                                
+                                attn_mask = attn_mask.cpu().numpy()
+                                attn_heatmap = cv2.applyColorMap(np.uint8(255*attn_mask), cv2.COLORMAP_JET)
+                                
+                                if args.VIS_ATTN_SRC_TO_SRC or args.VIS_ATTN_TRG_TO_TRG:
+                                    img2_tmp = img2_np_vis.copy()
+                                    img2_np_vis = img1_np_vis
+                                
+                                masked_img = img2_np_vis/255. + attn_heatmap/255.
+                                masked_img = masked_img / masked_img.max()
+            
+                                if args.VIS_ATTN_SRC_TO_SRC or args.VIS_ATTN_TRG_TO_TRG:
+                                    combined_img = np.concatenate([img1_np_vis, np.uint8(255*masked_img), img2_tmp], axis=1)
+                                else:     
+                                    # Combine source and target images side by side
+                                    combined_img = np.concatenate([img1_np_vis, np.uint8(255*masked_img)], axis=1)
+                                
+                                VIS_SAVE_PATH = f"{args.save_dir}/src_to_trg_trans/{img1_info['img1_cat']}/src{src_name}_trg{trg_name}"   
+                                FILE_SAVE_NAME = f"point{src_point}_src{src_name}_trg{trg_name}_layer{l}.jpg"
+                                                        
+                                # set save path 
+                                if not os.path.exists(VIS_SAVE_PATH):
+                                    os.makedirs(VIS_SAVE_PATH)
+                                
+                                if args.log_tool == 'wandb':
+                                    wandb.log({f"vis_ATTN_MAP_{img1_info['img1_cat']}_src_to_trg_trans/src{src_name}_trg{trg_name}_point{j}_{src_point}": wandb.Image(combined_img[:,:,::-1]) })
+                                    # breakpoint()
+                                else:
+                                    # Save visualization using torchvision
+                                    cv2.imwrite(f"{VIS_SAVE_PATH}/{FILE_SAVE_NAME}", combined_img)    
 
                     # visualize trg->src attention map
                     vis_points1 = vis_points_trg 
@@ -1322,23 +1594,23 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                             img2_np_vis = img2_np.copy()
                             
                             # get l-th layer attention map with query_point
-                            attn_mask = vis_attn_maps_img[l][src_point].view(pH,pW)
-                            attn_mask = F.interpolate(attn_mask[None, None], size=(vis_h, vis_w), mode='bilinear', align_corners=False).squeeze()
+                            attn_mask = vis_attn_maps_img[l][src_point].view(feat_H, feat_W)
+                            attn_mask = F.interpolate(attn_mask[None, None], size=(model_H, model_W), mode='bilinear', align_corners=ALIGN_CORNERS).squeeze()
                             attn_mask = (attn_mask-attn_mask.min())/(attn_mask.max()-attn_mask.min())
 
-                            idx_h = src_point // pW 
-                            idx_w = src_point % pW 
+                            idx_h = src_point // feat_W
+                            idx_w = src_point % feat_W 
                             
                             # Draw the query point as a circle
                             center = (idx_w*ps, idx_h*ps)
                             cv2.circle(img1_np_vis, center, ps//2, (255,0,0), -1)       # BGR
                             cv2.circle(img1_np_vis, center, ps//2, (255,255,255), 2)
                             
-                            if args.VIS_ATTN_SRC_TO_TRG or args.VIS_ATTN_TRG_TO_SRC or attn_map_direction=='src_to_trg' or attn_map_direction=='trg_to_src':
-                                # plot the real gt target point
-                                trg_center = (int(trg_point[0]), int(trg_point[1]))
-                                cv2.circle(img2_np_vis, trg_center, ps//2, (255,0,0), -1)       # BGR
-                                cv2.circle(img2_np_vis, trg_center, ps//2, (255,255,255), 2)
+                            # if args.VIS_ATTN_SRC_TO_TRG or args.VIS_ATTN_TRG_TO_SRC or attn_map_direction=='src_to_trg' or attn_map_direction=='trg_to_src':
+                            # plot the real gt target point
+                            trg_center = (int(trg_point[0]), int(trg_point[1]))
+                            cv2.circle(img2_np_vis, trg_center, ps//2, (255,0,0), -1)       # BGR
+                            cv2.circle(img2_np_vis, trg_center, ps//2, (255,255,255), 2)
                                 
                             img1_np_vis = img1_np_vis[...,::-1] 
                             img2_np_vis = img2_np_vis[...,::-1] 
@@ -1359,14 +1631,8 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                                 # Combine source and target images side by side
                                 combined_img = np.concatenate([img1_np_vis, np.uint8(255*masked_img)], axis=1)
                             
-                            if args.AVG_ATTN_MAP:
-                                l='AVG'
-                                VIS_SAVE_PATH = f"{args.save_dir}/trg_to_src/{img1_info['img1_cat']}/trg{src_name}_src{trg_name}"   
-                                FILE_SAVE_NAME = f"point{src_point}_trg{src_name}_src{trg_name}_layer{l}.jpg"
-                            
-                            else:
-                                VIS_SAVE_PATH = f"{args.save_dir}/trg_to_src/{img1_info['img1_cat']}/trg{src_name}_src{trg_name}/point{src_point}"   
-                                FILE_SAVE_NAME = f"trg{src_name}_src{trg_name}_layer{l}.jpg"
+                            VIS_SAVE_PATH = f"{args.save_dir}/trg_to_src/{img1_info['img1_cat']}/trg{src_name}_src{trg_name}"   
+                            FILE_SAVE_NAME = f"point{src_point}_trg{src_name}_src{trg_name}_layer{l}.jpg"
                                                      
                             # set save path 
                             if not os.path.exists(VIS_SAVE_PATH):
@@ -1407,7 +1673,6 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                             num_tkn = pair_ft.shape[1]
                             pair_ft = rearrange(pair_ft, 'fts n d -> (fts n) d')        # n1+n2 d
                             
-                            
                             # equivalent to the above, pytorch implementation
                             mean = torch.mean(pair_ft, dim=0, keepdim=True)
                             centered_pair_ft = pair_ft - mean
@@ -1430,7 +1695,7 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                     if args.model == 'sd3_joint':
                         h = args.eval_img_size[0] // 2 // 16
                         w = args.eval_img_size[1] // 16
-                        src_ft = rearrange(src_ft, 'b (h w) d -> b d h w', h=h, w=w)
+                        src_ft = rearrange(src_ft, 'b (h w) d -> b d h w', h=h, w=w)    # 1 2048 1536 -> 1 1536 32 64
                         trg_ft = rearrange(trg_ft, 'b (h w) d -> b d h w', h=h, w=w)
                     else: 
                         h = args.eval_img_size[0] // 16
@@ -1496,8 +1761,8 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                         src_pca = rearrange(src_pca, '(h w) d -> d h w', h=H)
                         trg_pca = rearrange(trg_pca, '(h w) d -> d h w', h=H)
                         
-                        up_src_pca = F.interpolate(src_pca.unsqueeze(0), size=interp_size, mode='bilinear', align_corners=False).squeeze()
-                        up_trg_pca = F.interpolate(trg_pca.unsqueeze(0), size=interp_size, mode='bilinear', align_corners=False).squeeze()
+                        up_src_pca = F.interpolate(src_pca.unsqueeze(0), size=interp_size, mode='bilinear', align_corners=ALIGN_CORNERS).squeeze()
+                        up_trg_pca = F.interpolate(trg_pca.unsqueeze(0), size=interp_size, mode='bilinear', align_corners=ALIGN_CORNERS).squeeze()
                         
                         joint_imgs_pca_fg = torch.cat([up_src_pca, up_trg_pca], dim=2)
                         
@@ -1509,8 +1774,8 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                         src_pca_full = rearrange(src_pca_full, '(h w) d -> d h w', h=H)
                         trg_pca_full = rearrange(trg_pca_full, '(h w) d -> d h w', h=H)
                         
-                        up_src_pca_full = F.interpolate(src_pca_full.unsqueeze(0), size=interp_size, mode='bilinear', align_corners=False).squeeze()
-                        up_trg_pca_full = F.interpolate(trg_pca_full.unsqueeze(0), size=interp_size, mode='bilinear', align_corners=False).squeeze()
+                        up_src_pca_full = F.interpolate(src_pca_full.unsqueeze(0), size=interp_size, mode='bilinear', align_corners=ALIGN_CORNERS).squeeze()
+                        up_trg_pca_full = F.interpolate(trg_pca_full.unsqueeze(0), size=interp_size, mode='bilinear', align_corners=ALIGN_CORNERS).squeeze()
                         
                         joint_imgs_pca_full = torch.cat([up_src_pca_full, up_trg_pca_full], dim=2)
 
@@ -1533,8 +1798,9 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                             # Save visualization using torchvision
                             save_image(vis_joint, f"{SAVE_PATH_JOINT_PCA}/pca_joint_src{data['src_imname'].split('.')[0]}_trg{data['trg_imname'].split('.')[0]}.jpg")
 
-                src_ft = nn.Upsample(size=src_img_size, mode='bilinear')(src_ft)
-                trg_ft = nn.Upsample(size=trg_img_size, mode='bilinear')(trg_ft)
+                # resize feature map to original image size
+                src_ft = nn.Upsample(size=(src_orig_H, src_orig_W), mode='bilinear')(src_ft)    # (1 1536 feat_H feat_W) -> (1 1536 model_H model_W)
+                trg_ft = nn.Upsample(size=(trg_orig_H, trg_orig_W), mode='bilinear')(trg_ft)
                 # h = trg_ft.shape[-2]
                 # w = trg_ft.shape[-1]
 
@@ -1575,18 +1841,18 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
             # process attention map for kpt matching 
             if args.FLOW_CAMAP:
 
-                # src_img_size (334, 500)
-                # trg_img_size (322, 500)
+                # src_orig_size (334, 500)
+                # trg_orig_size (322, 500)
                 
-                # orig_H: 512 
-                # orig_W: 1024 
+                # model_H: 512 
+                # model_W: 1024 
                 
                 # 3. set scaling ratio for kpt relocation and visualization
-                x_scale_src = orig_W / src_img_size[1]
-                y_scale_src = orig_H / src_img_size[0]
+                x_scale_src = model_W / src_orig_W
+                y_scale_src = model_H / src_orig_H
                 
-                x_scale_trg = orig_W / trg_img_size[1]
-                y_scale_trg = orig_H / trg_img_size[0]
+                x_scale_trg = model_W / trg_orig_W
+                y_scale_trg = model_H / trg_orig_H
                 
                 scaled_kpts_src = []
                 scaled_kpts_trg = []
@@ -1634,17 +1900,20 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                         if not os.path.exists(SAVE_PATH_KPTS):
                             os.makedirs(SAVE_PATH_KPTS)
                         
-                        # Load source and target images
-                        src_img = cv2.imread(os.path.join(dataset_path, 'JPEGImages', cat, data['src_imname'])) # h w 3
-                        trg_img = cv2.imread(os.path.join(dataset_path, 'JPEGImages', cat, data['trg_imname']))
-                        # cv2.imwrite('./img_s.jpg', src_img)
-                        # cv2.imwrite('./img_t.jpg', trg_img)
+                        # # Load source and target images
+                        # src_img = cv2.imread(os.path.join(dataset_path, 'JPEGImages', cat, data['src_imname'])) # h w 3
+                        # trg_img = cv2.imread(os.path.join(dataset_path, 'JPEGImages', cat, data['trg_imname']))
+                        # # cv2.imwrite('./img_s.jpg', src_img)
+                        # # cv2.imwrite('./img_t.jpg', trg_img)
                         
-                        # Resize src and trg to eval img size 
-                        src_img = cv2.resize(src_img, (orig_W, orig_H))
-                        trg_img = cv2.resize(trg_img, (orig_W, orig_H))   # (w, h) 로 넣어야 (h,w,3)으로 나오네
-                        # cv2.imwrite('./img_s_resized.jpg', src_img)
-                        # cv2.imwrite('./img_t_resized.jpg', trg_img)
+                        # # Resize src and trg to eval img size 
+                        # src_img = cv2.resize(src_img, (model_W, model_H))
+                        # trg_img = cv2.resize(trg_img, (model_W, model_H))   # (w, h) 로 넣어야 (h,w,3)으로 나오네
+                        # # cv2.imwrite('./img_s_resized.jpg', src_img)
+                        # # cv2.imwrite('./img_t_resized.jpg', trg_img)
+                        
+                        src_img = np.array(img_src.resize((model_W, model_H)))[...,::-1]
+                        trg_img = np.array(img_trg.resize((model_W, model_H)))[...,::-1]
                           
                         # Create combined visualization
                         combined_vis = np.hstack((src_img.copy(), trg_img.copy()))
@@ -1661,7 +1930,7 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                     
                     src_point = scaled_kpts_src[idx]        # (991, 223)
                     trg_point = torch.tensor(scaled_kpts_trg[idx]).cuda()
-                                                        
+                                                                 
                     # mapping_up: 1 2 512 1024  # src->trg 
                     pred_x, pred_y = mapping_up_src[0,:, src_point[1], src_point[0]]
                     
@@ -1686,7 +1955,7 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                             # vis_pred_y = int(pred_y * scale_y)
                             vis_pred_x = int(pred_x)
                             vis_pred_y = int(pred_y)
-                            pred_pt = (vis_pred_x + orig_W, vis_pred_y)
+                            pred_pt = (vis_pred_x + model_W, vis_pred_y)
                             cv2.circle(combined_vis, pred_pt, 5, circle_color, -1)
                             
                             # Draw line - green for correct matches, red for incorrect
@@ -1696,9 +1965,6 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                 # breakpoint()
             
             else: 
-                h = trg_img_size[0]
-                w = trg_img_size[1]
-                
                 trg_bndbox = data['trg_bndbox'] # 3 1 500 322 (x1, y1, x2, y2)
                 threshold = max(trg_bndbox[3] - trg_bndbox[1], trg_bndbox[2] - trg_bndbox[0])   # max(322-1, 500-3)
 
@@ -1717,7 +1983,7 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
                     trg_vec = trg_ft.view(num_channel, -1).transpose(0, 1) # HW, C
                     src_vec = F.normalize(src_vec).transpose(0, 1) # c, 1
                     trg_vec = F.normalize(trg_vec) # HW, c
-                    cos_map = torch.mm(trg_vec, src_vec).view(h, w).cpu().numpy() # H, W    
+                    cos_map = torch.mm(trg_vec, src_vec).view(trg_orig_H, trg_orig_W).cpu().numpy() # H, W    
 
                     max_yx = np.unravel_index(cos_map.argmax(), cos_map.shape)
 
@@ -1760,6 +2026,11 @@ def run_evaluation_semantic_joint(network, dataset_path, args):
             cat_pck.append(correct / total)
         
         # if args.VIS_ATTN_MAP:
+        #     continue
+        
+        if OBTAIN_SAM_MASK:
+            continue
+        # if BLIP_IMG_CAPTION:
         #     continue
         
         total_pck.extend(cat_pck)

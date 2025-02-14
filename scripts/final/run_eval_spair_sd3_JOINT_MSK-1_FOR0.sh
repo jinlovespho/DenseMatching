@@ -9,13 +9,13 @@ DATA_ARGS="
 #               mmdit_attn mmdit_attn_1_scale mmdit_attn_2_res mmdit_attn_3_scaleshift mmdit_attn_4_norm
 #               mmdit_ff mmdit_ff_1_scale mmdit_ff_2_res
 
-CUDA=0
+CUDA=2
 # Loop through different stop steps
-for stop_step in 6 10 14 18 22; do
+for stop_step in 22; do
     # Loop through different feature types
     for feat_type in mmdit_attn; do
         # Loop through different layers
-        for layer in 0 2; do
+        for layer in 10; do
             # Loop through different step counts
             for inf_step_count in 1; do
                 # Loop through different mask attention
@@ -34,7 +34,7 @@ for stop_step in 6 10 14 18 22; do
                     "
 
                     LOG_ARGS="
-                        --log_tool wandb \
+                        --log_tool wandba \
                         --wandb_path ./wandb \
                         --wandb_proj_name zeroshot_matching \
                         --wandb_exp_name server5_spair_SORTED_VALSPLIT360_sd3_JOINT_step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_layer${layer}_gpu${CUDA} \
@@ -45,6 +45,7 @@ for stop_step in 6 10 14 18 22; do
                         --WANDB_LOG_FREQ 2 \
                         --VIS_PCA_JOINT_IMG \
                         --VIS_KPTS_PREDICTION \
+                        --VIS_TXT_TO_IMG \
                     "
 
                     ETC_ARGS="

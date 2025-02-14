@@ -3,6 +3,9 @@
 DATA_ARGS="
     --dataset spair \
     --eval_img_size 1024 1024 \
+    --ALIGN_TRG_TO_SRC \
+    --SAM_MASK_FEAT \
+    
 "
 
 # feat_types:   attn_map query key value
@@ -40,8 +43,8 @@ for stop_step in 22; do
                             --log_tool wandb \
                             --wandb_path ./wandb \
                             --wandb_proj_name zeroshot_matching \
-                            --wandb_exp_name server5_spair_SORTED_VALSPLIT360_sd3_JOINT_step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_fusion_dim${fusion_dim}_layer${fusion_layer}_promptGPT2_gpu${CUDA} \
-                            --save_dir ./vis/spair_SORTED_VALSPLIT360/sd3_JOINT/step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_fusion_dim${fusion_dim}_layer${fusion_layer}_promptGPT2 \
+                            --wandb_exp_name server5_spair_SORTED_VALSPLIT360_sd3_JOINT_FUSION_ALIGN_SAMMASKFEAT_step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_fusion_dim${fusion_dim}_layer${fusion_layer}_promptGPT2_gpu${CUDA} \
+                            --save_dir ./vis/spair_SORTED_VALSPLIT360/sd3_JOINT/FUSION_ALIGN_SAMMASKFEAT_step_max28_stop${stop_step}_count${inf_step_count}_${feat_type}_MASKATTN${msk_attn}_fusion_dim${fusion_dim}_layer${fusion_layer}_promptGPT2 \
                         "
 
                         VIS_ARGS="

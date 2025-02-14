@@ -263,6 +263,7 @@ class StableDiffusion3Pipeline(DiffusionPipeline, SD3LoraLoaderMixin, FromSingle
                 dtype=dtype,
             )
 
+
         text_inputs = self.tokenizer_3(
             prompt,
             padding="max_length",
@@ -320,9 +321,13 @@ class StableDiffusion3Pipeline(DiffusionPipeline, SD3LoraLoaderMixin, FromSingle
             truncation=True,
             return_tensors="pt",
         )
+        
+        # string to ids 
+        # ids = tokenizer.encode('A photo of a aeroplane')
+        # vocabs = tokenizer.convert_ids_to_tokens(ids)
 
-        text_input_ids = text_inputs.input_ids
-        untruncated_ids = tokenizer(prompt, padding="longest", return_tensors="pt").input_ids
+        text_input_ids = text_inputs.input_ids  # 1 77
+        untruncated_ids = tokenizer(prompt, padding="longest", return_tensors="pt").input_ids  # 1 8
         if untruncated_ids.shape[-1] >= text_input_ids.shape[-1] and not torch.equal(text_input_ids, untruncated_ids):
             removed_text = tokenizer.batch_decode(untruncated_ids[:, self.tokenizer_max_length - 1 : -1])
             logger.warning(
@@ -435,9 +440,14 @@ class StableDiffusion3Pipeline(DiffusionPipeline, SD3LoraLoaderMixin, FromSingle
             batch_size = prompt_embeds.shape[0]
 
         if prompt_embeds is None:
+            # prompt -> CLIP-L
+            # prompt_2 -> CLIP-G
+            # prompt_3 -> T5
+            
+            # if prompt_2 is not given, prompt_2 also uses prompt
             prompt_2 = prompt_2 or prompt
             prompt_2 = [prompt_2] if isinstance(prompt_2, str) else prompt_2
-
+            # if prompt_3 is not given, prompt_3 also uses prompt   
             prompt_3 = prompt_3 or prompt
             prompt_3 = [prompt_3] if isinstance(prompt_3, str) else prompt_3
 
@@ -457,13 +467,18 @@ class StableDiffusion3Pipeline(DiffusionPipeline, SD3LoraLoaderMixin, FromSingle
             )
             clip_prompt_embeds = torch.cat([prompt_embed, prompt_2_embed], dim=-1)
 
-            t5_prompt_embed = self._get_t5_prompt_embeds(
+
+            t5_prompt_embed = self._get_t5_prompt_embeds(       # 1 256 4096
                 prompt=prompt_3,
                 num_images_per_prompt=num_images_per_prompt,
                 max_sequence_length=max_sequence_length,
                 device=device,
             )
-
+            
+            # F.pad(input, (left, right, top, bot) ) 일 때 
+            # t1=torch.rand(2,2)
+            # t2 = F.pad(t1, (0, 20) )
+            # t1의 오른쪽으로 20만큼 zero pad가 되어, t2의 shape은 (2, 22)가 된다.
             clip_prompt_embeds = torch.nn.functional.pad(
                 clip_prompt_embeds, (0, t5_prompt_embed.shape[-1] - clip_prompt_embeds.shape[-1])
             )

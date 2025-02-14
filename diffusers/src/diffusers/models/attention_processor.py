@@ -554,6 +554,8 @@ class Attention(nn.Module):
         encoder_hidden_states: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         args=None,
+        img1_msk=None,
+        img2_msk=None,
         **cross_attention_kwargs,
     ) -> torch.Tensor:
         r"""
@@ -593,6 +595,8 @@ class Attention(nn.Module):
             encoder_hidden_states=encoder_hidden_states,
             attention_mask=attention_mask,
             my_args=args,
+            img1_msk=img1_msk,
+            img2_msk=img2_msk,
             **cross_attention_kwargs,
         )
 
@@ -1413,6 +1417,8 @@ class JointAttnProcessor2_0:
         encoder_hidden_states: torch.FloatTensor = None,
         attention_mask: Optional[torch.FloatTensor] = None,
         my_args=None,
+        img1_msk=None,
+        img2_msk=None,
         *args,
         **kwargs,
     ) -> torch.FloatTensor:
@@ -1474,11 +1480,38 @@ class JointAttnProcessor2_0:
         # JLP - extract features from mmdit block 
         EXTRACT_FEAT = None
         img_len = hidden_states.shape[1]            # 2304
-        text_len = encoder_hidden_states.shape[1]   # 333
+        # text_len = encoder_hidden_states.shape[1]   # 154
+        
+        
+        # apply SAM mask to feature 
+        if my_args.SAM_MASK_FEAT:
+            # MANUAL RESIZE
+            model_H = my_args.eval_img_size[0] // 16
+            model_W = my_args.eval_img_size[1] // 16
+            
+            # binary mask
+            img_msk = torch.cat([img1_msk, img2_msk], dim=1)[0][None,None]    # 1 1024 1024 
+            img_msk = F.interpolate(img_msk, size=(model_H, model_W), mode='bilinear', align_corners=False)    # 1 1 64 64 
+            img_msk = img_msk[None] # 1 1 1 64 64 (b head channel height width)
+            
+            # from torchvision.utils import save_image
+            # save_image(img_msk, './img_msk.jpg')
+            
+            img_query = query[:, :, :img_len, :]    # 1 24 4096 64
+            img_key = key[:, :, :img_len, :]
+            img_value = value[:, :, :img_len, :]
+            
+            img_query = rearrange(img_query, 'b h (model_H model_W) d -> b h d model_H model_W', model_H=model_H, model_W=model_W)    # 1 24 64 64 64
+            img_key = rearrange(img_key, 'b h (model_H model_W) d -> b h d model_H model_W', model_H=model_H, model_W=model_W)   
+            img_value = rearrange(img_value, 'b h (model_H model_W) d -> b h d model_H model_W', model_H=model_H, model_W=model_W)  
+            
+            img_query = img_query * img_msk
+            img_key = img_key * img_msk
+            img_value = img_value * img_msk
         
         # JLP - manual attention computation
-        attn_scores_no_softmax = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(head_dim)  # 1 24 4429 4429
-        attn_scores = F.softmax(attn_scores_no_softmax, dim=-1)                                    # 1 24 5274 5274
+        attn_scores_no_softmax = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(head_dim)  # 1 24 4250 4250
+        attn_scores = F.softmax(attn_scores_no_softmax, dim=-1)                                    # 1 24 4250 4250
         
         # MASK ATTENTION MAP
         if my_args.MSK_ATTN == -1:  # no mask
@@ -1486,7 +1519,19 @@ class JointAttnProcessor2_0:
         elif my_args.MSK_ATTN == 0: # mask the text tokens
             attn_scores[:,:, :img_len, img_len:] =0
         
+        if my_args.model == 'sd3_single' and my_args.VIS_TXT_TO_IMG:
+            # attn_scores: 2 24 4096+154 4096+154
+            self.txt_to_img = attn_scores_no_softmax[:,:, img_len:, :img_len].clone().detach().cpu()
+            self.img_to_txt = attn_scores_no_softmax[:,:, :img_len, img_len:].clone().detach().cpu()
+        elif my_args.model == 'sd3_joint' and my_args.VIS_TXT_TO_IMG:
+            # attn_scores: 1 24 4096+154 4096+154
+            self.txt_to_img1 = attn_scores_no_softmax[:,:, img_len:, :img_len//2].clone().detach().cpu()
+            self.txt_to_img2 = attn_scores_no_softmax[:,:, img_len:, img_len//2:img_len].clone().detach().cpu()
+            self.img1_to_txt = attn_scores_no_softmax[:,:, :img_len//2, img_len:].clone().detach().cpu()
+            self.img2_to_txt = attn_scores_no_softmax[:,:, img_len//2:img_len, img_len:].clone().detach().cpu()
+        
         # breakpoint()
+        
         # extract attention maps
         if my_args.output_feat_type == 'attn_map':
             

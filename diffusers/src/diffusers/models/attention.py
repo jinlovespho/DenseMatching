@@ -193,7 +193,9 @@ class JointTransformerBlock(nn.Module):
         encoder_hidden_states: torch.FloatTensor,
         temb: torch.FloatTensor,
         joint_attention_kwargs: Optional[Dict[str, Any]] = None,
-        args=None
+        args=None,
+        img1_msk=None,
+        img2_msk=None,
     ):
         # breakpoint()
         joint_attention_kwargs = joint_attention_kwargs or {}
@@ -216,6 +218,8 @@ class JointTransformerBlock(nn.Module):
             hidden_states=norm_hidden_states,
             encoder_hidden_states=norm_encoder_hidden_states,
             args=args,
+            img1_msk=img1_msk,
+            img2_msk=img2_msk,
             **joint_attention_kwargs,
         )
         '''
@@ -244,7 +248,11 @@ class JointTransformerBlock(nn.Module):
             EXTRACT_FEAT = hidden_states.clone().detach().cpu()  # 1 4096 1536
 
         if self.use_dual_attention: # f
-            attn_output2 = self.attn2(hidden_states=norm_hidden_states2, **joint_attention_kwargs)
+            attn_output2 = self.attn2(  hidden_states=norm_hidden_states2,             
+                                        args=args,
+                                        img1_msk=img1_msk,
+                                        img2_msk=img2_msk, 
+                                        **joint_attention_kwargs)
             attn_output2 = gate_msa2.unsqueeze(1) * attn_output2
             hidden_states = hidden_states + attn_output2
 
